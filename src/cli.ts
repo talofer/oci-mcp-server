@@ -1,134 +1,71 @@
 #!/usr/bin/env node
 
-import { setupMCPTools } from './mcp/service';
-import { MCPStreamServer } from '@modelcontextprotocol/mcp';
 import { configureOCIClient } from './oci/config';
+import { startMCPServer } from './mcp/service';
 import yargs from 'yargs';
 import { hideBin } from 'yargs/helpers';
 import fs from 'fs';
 import path from 'path';
 import dotenv from 'dotenv';
 
-// Configurar las opciones de línea de comandos
 const argv = yargs(hideBin(process.argv))
   .option('config', {
     alias: 'c',
     type: 'string',
-    description: 'Ruta al archivo de configuración de OCI (.env o .json)',
-    default: '.env'
+    description: 'Path to .env or .json config file',
+    default: '.env',
   })
-  .option('user-ocid', {
-    type: 'string',
-    description: 'OCID del usuario en OCI'
-  })
-  .option('tenancy-ocid', {
-    type: 'string',
-    description: 'OCID del tenancy en OCI'
-  })
-  .option('region', {
-    type: 'string',
-    description: 'Región de OCI'
-  })
-  .option('fingerprint', {
-    type: 'string',
-    description: 'Fingerprint de la clave API'
-  })
-  .option('key-file', {
-    type: 'string',
-    description: 'Ruta al archivo de clave privada'
-  })
-  .option('compartment-id', {
-    type: 'string',
-    description: 'OCID del compartimento donde trabajar'
-  })
+  .option('user-ocid', { type: 'string' })
+  .option('tenancy-ocid', { type: 'string' })
+  .option('region', { type: 'string' })
+  .option('fingerprint', { type: 'string' })
+  .option('key-file', { type: 'string' })
+  .option('compartment-id', { type: 'string' })
   .help()
-  .argv;
+  .parseSync();
 
-// Función para cargar la configuración
-const loadConfig = () => {
+function loadConfig() {
   const configPath = argv.config as string;
-  
-  // Verificar si el archivo de configuración existe
-  if (!fs.existsSync(configPath)) {
-    console.error(`El archivo de configuración no existe: ${configPath}`);
-    process.exit(1);
-  }
-  
-  // Determinar el tipo de archivo de configuración
-  if (path.extname(configPath) === '.json') {
-    // Cargar archivo JSON
-    try {
-      const configData = JSON.parse(fs.readFileSync(configPath, 'utf8'));
-      
-      // Establecer variables de entorno desde el objeto JSON
-      process.env.OCI_USER_OCID = configData.user || configData.userOcid || configData.OCI_USER_OCID;
-      process.env.OCI_TENANCY_OCID = configData.tenancy || configData.tenancyOcid || configData.OCI_TENANCY_OCID;
-      process.env.OCI_REGION = configData.region || configData.OCI_REGION;
-      process.env.OCI_FINGERPRINT = configData.fingerprint || configData.OCI_FINGERPRINT;
-      process.env.OCI_KEY_FILE = configData.keyFile || configData.OCI_KEY_FILE;
-      process.env.OCI_COMPARTMENT_ID = configData.compartmentId || configData.OCI_COMPARTMENT_ID;
-    } catch (error) {
-      console.error(`Error al parsear el archivo JSON: ${(error as Error).message}`);
-      process.exit(1);
+
+  if (fs.existsSync(configPath)) {
+    const ext = path.extname(configPath);
+    if (ext === '.json') {
+      const data = JSON.parse(fs.readFileSync(configPath, 'utf8'));
+      process.env.OCI_USER_OCID = data.userOcid || data.user || data.OCI_USER_OCID;
+      process.env.OCI_TENANCY_OCID = data.tenancyOcid || data.tenancy || data.OCI_TENANCY_OCID;
+      process.env.OCI_REGION = data.region || data.OCI_REGION;
+      process.env.OCI_FINGERPRINT = data.fingerprint || data.OCI_FINGERPRINT;
+      process.env.OCI_KEY_FILE = data.keyFile || data.OCI_KEY_FILE;
+      process.env.OCI_COMPARTMENT_ID = data.compartmentId || data.OCI_COMPARTMENT_ID;
+    } else {
+      dotenv.config({ path: configPath });
     }
-  } else {
-    // Cargar archivo .env
-    dotenv.config({ path: configPath });
   }
-  
-  // Sobrescribir con argumentos de línea de comandos si están presentes
+
+  // CLI args override file config
   if (argv['user-ocid']) process.env.OCI_USER_OCID = argv['user-ocid'] as string;
   if (argv['tenancy-ocid']) process.env.OCI_TENANCY_OCID = argv['tenancy-ocid'] as string;
   if (argv.region) process.env.OCI_REGION = argv.region as string;
   if (argv.fingerprint) process.env.OCI_FINGERPRINT = argv.fingerprint as string;
   if (argv['key-file']) process.env.OCI_KEY_FILE = argv['key-file'] as string;
   if (argv['compartment-id']) process.env.OCI_COMPARTMENT_ID = argv['compartment-id'] as string;
-  
-  // Verificar que las variables requeridas están definidas
-  const requiredVars = [
-    'OCI_USER_OCID',
-    'OCI_TENANCY_OCID',
-    'OCI_REGION',
-    'OCI_FINGERPRINT',
-    'OCI_KEY_FILE',
-    'OCI_COMPARTMENT_ID'
-  ];
-  
-  const missingVars = requiredVars.filter(varName => !process.env[varName]);
-  
-  if (missingVars.length > 0) {
-    console.error(`Faltan las siguientes variables de configuración: ${missingVars.join(', ')}`);
+
+  const missing = ['OCI_USER_OCID', 'OCI_TENANCY_OCID', 'OCI_REGION', 'OCI_FINGERPRINT', 'OCI_KEY_FILE', 'OCI_COMPARTMENT_ID']
+    .filter(v => !process.env[v]);
+
+  if (missing.length > 0) {
+    process.stderr.write(`Missing OCI config: ${missing.join(', ')}\n`);
     process.exit(1);
   }
-};
+}
 
-// Cargar la configuración
-loadConfig();
+async function main() {
+  loadConfig();
+  configureOCIClient();
+  await startMCPServer();
+}
 
-// Configurar el cliente OCI con las variables de entorno
-configureOCIClient();
-
-// Crear el servicio MCP con todas las herramientas
-const mcpService = setupMCPTools();
-
-// Crear el servidor MCP que se comunica a través de stdin/stdout
-const server = new MCPStreamServer({
-  service: mcpService,
-  input: process.stdin,
-  output: process.stdout
-});
-
-// Iniciar el servidor
-console.error('Iniciando servidor MCP para Oracle Cloud Infrastructure...');
-server.start();
-
-// Manejar señales de terminación
-process.on('SIGTERM', () => {
-  console.error('SIGTERM recibido, cerrando servidor...');
-  process.exit(0);
-});
-
-process.on('SIGINT', () => {
-  console.error('SIGINT recibido, cerrando servidor...');
-  process.exit(0);
+main().catch(err => {
+  process.stderr.write(`Fatal error: ${err.message}\n`);
+  process.exit(1);
 });

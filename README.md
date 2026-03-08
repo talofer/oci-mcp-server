@@ -1,44 +1,44 @@
-# MCP Server para Oracle Cloud Infrastructure
+# MCP Server for Oracle Cloud Infrastructure
 
-Este paquete implementa un servidor MCP (Model Context Protocol) para Oracle Cloud Infrastructure. Permite a los modelos de lenguaje como Claude interactuar con recursos de OCI mediante herramientas estructuradas.
+This package implements a Model Context Protocol (MCP) server for Oracle Cloud Infrastructure. It allows language models like Claude to interact with OCI resources through structured tools.
 
-## Características
+## Features
 
-- Implementación del Model Context Protocol para OCI
-- Integración directa con Claude Desktop
-- Herramientas para gestionar:
-  - Instancias de computación
-  - Redes virtuales (VCNs) y subredes
-  - Volúmenes de almacenamiento en bloque
-  - Buckets de almacenamiento de objetos
-  - Bases de datos autónomas
+- Model Context Protocol implementation for OCI
+- Direct integration with Claude Desktop
+- Tools for managing:
+  - Compute instances
+  - Virtual networks (VCNs) and subnets
+  - Block storage volumes
+  - Object storage buckets
+  - Autonomous databases
 
-## Instalación rápida
+## Quick install
 
-Para una instalación rápida con configuración interactiva:
+For a quick install with interactive setup:
 
 ```bash
-git clone https://github.com/tu-usuario/mcp-server-oci.git
-cd mcp-server-oci
+git clone https://github.com/jopsis/mcp-oci-ts.git
+cd mcp-oci-ts
 chmod +x setup.sh
 ./setup.sh
 ```
 
-## Instalación manual
+## Manual install
 
-### 1. Clonar e instalar
+### 1. Clone and install
 
 ```bash
-git clone https://github.com/tu-usuario/mcp-server-oci.git
-cd mcp-server-oci
+git clone https://github.com/jopsis/mcp-oci-ts.git
+cd mcp-oci-ts
 npm install
 npm run build
 npm install -g .
 ```
 
-### 2. Configurar
+### 2. Configure
 
-Crea un archivo de configuración JSON (por ejemplo, en `~/.mcp-server-oci/config.json`):
+Create a JSON config file (e.g. `~/.mcp-server-oci/config.json`):
 
 ```json
 {
@@ -51,7 +51,7 @@ Crea un archivo de configuración JSON (por ejemplo, en `~/.mcp-server-oci/confi
 }
 ```
 
-O puedes usar un archivo `.env`:
+Or use a `.env` file:
 
 ```
 OCI_USER_OCID=ocid1.user.oc1..example
@@ -62,9 +62,9 @@ OCI_KEY_FILE=/path/to/your/oci_api_key.pem
 OCI_COMPARTMENT_ID=ocid1.compartment.oc1..example
 ```
 
-## Integración con Claude Desktop
+## Claude Desktop integration
 
-Para integrar este servidor MCP con Claude Desktop, añade la siguiente configuración a tu archivo de configuración de Claude Desktop (generalmente en `~/.config/claude-desktop/settings.json`):
+To integrate this MCP server with Claude Desktop, add the following to your Claude Desktop settings file (typically `~/.config/claude-desktop/settings.json`):
 
 ```json
 {
@@ -81,72 +81,78 @@ Para integrar este servidor MCP con Claude Desktop, añade la siguiente configur
 }
 ```
 
-Si instalaste globalmente con npm, puedes utilizar el comando `which mcp-server-oci` para encontrar la ruta correcta.
+If you installed globally with npm, run `which mcp-server-oci` to find the correct path.
 
-## Uso
+## Usage
 
-Una vez configurado, reinicia Claude Desktop. Ahora podrás interactuar con Oracle Cloud Infrastructure a través de conversaciones con Claude.
+Once configured, restart Claude Desktop. You can then manage Oracle Cloud Infrastructure through natural conversation with Claude.
 
-### Ejemplos de consultas
+### Example prompts
 
-- "Lista todas mis instancias de computación en Oracle Cloud"
-- "Crea una nueva VCN con el nombre 'dev-network' y CIDR 10.0.0.0/16"
-- "Muéstrame todos mis buckets de almacenamiento"
-- "Crea una subred en la VCN principal con CIDR 10.0.1.0/24"
+- "List all my compute instances in Oracle Cloud"
+- "Create a new VCN named 'dev-network' with CIDR 10.0.0.0/16"
+- "Show all my object storage buckets"
+- "Create a subnet in the main VCN with CIDR 10.0.1.0/24"
 
-## Opciones de línea de comandos
-
-El servidor MCP para OCI admite las siguientes opciones:
+## CLI options
 
 ```
-Opciones:
-  --config, -c         Ruta al archivo de configuración (.env o .json)  [cadena] [predeterminado: ".env"]
-  --user-ocid          OCID del usuario en OCI                          [cadena]
-  --tenancy-ocid       OCID del tenancy en OCI                          [cadena]
-  --region             Región de OCI                                    [cadena]
-  --fingerprint        Fingerprint de la clave API                      [cadena]
-  --key-file           Ruta al archivo de clave privada                 [cadena]
-  --compartment-id     OCID del compartimento donde trabajar            [cadena]
-  --help               Muestra ayuda                                    [booleano]
+Options:
+  --config, -c         Path to config file (.env or .json)   [string] [default: ".env"]
+  --user-ocid          OCI user OCID                         [string]
+  --tenancy-ocid       OCI tenancy OCID                      [string]
+  --region             OCI region                            [string]
+  --fingerprint        API key fingerprint                   [string]
+  --key-file           Path to private key file              [string]
+  --compartment-id     OCID of the compartment to use        [string]
+  --help               Show help                             [boolean]
 ```
 
-## Desarrollo
+## Development
 
-### Estructura del proyecto
+### Project structure
 
 ```
 mcp-server-oci/
 ├── src/
-│   ├── cli.ts                 # Punto de entrada del CLI
-│   ├── mcp/                   # Implementación del protocolo MCP
-│   │   └── service.ts         # Definición de herramientas y funciones
-│   └── oci/                   # Integración con Oracle Cloud
-│       ├── client.ts          # Clientes de API de OCI
-│       ├── config.ts          # Configuración de OCI
-│       └── services.ts        # Servicios para interactuar con OCI
+│   ├── cli.ts                 # CLI entry point
+│   ├── index.ts               # Express app (REST + /chat endpoint)
+│   ├── server.ts              # Express server startup
+│   ├── claude/
+│   │   └── bridge.ts          # Claude Desktop bridge (port 3001)
+│   ├── mcp/
+│   │   └── service.ts         # MCP tool definitions and dispatch
+│   ├── oci/
+│   │   ├── client.ts          # OCI SDK client factories
+│   │   ├── config.ts          # OCI configuration loader
+│   │   └── services.ts        # OCI service classes
+│   ├── config/
+│   │   └── index.ts           # Server configuration
+│   └── utils/
+│       └── logger.ts          # Winston logger
 ├── package.json
 └── tsconfig.json
 ```
 
-### Compilar desde el código fuente
+### Build from source
 
 ```bash
-# Instalar dependencias
+# Install dependencies
 npm install
 
-# Compilar TypeScript
+# Compile TypeScript
 npm run build
 
-# Probar localmente
+# Run locally
 node dist/cli.js --config=./config.json
 ```
 
-## Consideraciones de seguridad
+## Security considerations
 
-- El archivo de configuración contiene información sensible. Asegúrate de protegerlo adecuadamente.
-- La clave privada de la API de OCI debe tener permisos limitados a las operaciones necesarias.
-- Considera usar un compartimento específico para las operaciones de este servidor.
+- The config file contains sensitive credentials — restrict its file permissions (e.g. `chmod 600`).
+- The OCI API private key should be granted only the permissions required for the operations this server performs.
+- Consider using a dedicated OCI compartment scoped to this server's operations.
 
-## Licencia
+## License
 
-Este proyecto está licenciado bajo la licencia MIT. Consulta el archivo LICENSE para más detalles.
+MIT. See the LICENSE file for details.

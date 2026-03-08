@@ -1,81 +1,40 @@
 import * as OCI from 'oci-sdk';
-import { getOCIConfig, getCompartmentId, getPrivateKey } from './config';
+import { getOCIConfig, getPrivateKey } from './config';
+export { getCompartmentId } from './config';
 import logger from '../utils/logger';
 
-/**
- * Configuración del cliente OCI
- */
-const createOCIConfig = (): OCI.common.ConfigFileAuthenticationDetailsProvider => {
+let _provider: OCI.common.SimpleAuthenticationDetailsProvider | null = null;
+
+function getProvider(): OCI.common.SimpleAuthenticationDetailsProvider {
+  if (_provider) return _provider;
   try {
     const config = getOCIConfig();
-    
-    return new OCI.common.SimpleAuthenticationDetailsProvider(
+    _provider = new OCI.common.SimpleAuthenticationDetailsProvider(
       config.tenancy,
       config.user,
       config.fingerprint,
       getPrivateKey(),
       null,
-      config.region
+      OCI.common.Region.fromRegionId(config.region)
     );
+    return _provider;
   } catch (error) {
     logger.error('Error creating OCI configuration', { error });
     throw new Error('Failed to initialize OCI configuration');
   }
-};
+}
 
-/**
- * Cliente de Compute
- */
-export const getComputeClient = (): OCI.core.ComputeClient => {
-  const provider = createOCIConfig();
-  return new OCI.core.ComputeClient({
-    authenticationDetailsProvider: provider,
-  });
-};
+export const getComputeClient = (): OCI.core.ComputeClient =>
+  new OCI.core.ComputeClient({ authenticationDetailsProvider: getProvider() });
 
-/**
- * Cliente de Virtual Network
- */
-export const getVirtualNetworkClient = (): OCI.core.VirtualNetworkClient => {
-  const provider = createOCIConfig();
-  return new OCI.core.VirtualNetworkClient({
-    authenticationDetailsProvider: provider,
-  });
-};
+export const getVirtualNetworkClient = (): OCI.core.VirtualNetworkClient =>
+  new OCI.core.VirtualNetworkClient({ authenticationDetailsProvider: getProvider() });
 
-/**
- * Cliente de Block Storage
- */
-export const getBlockStorageClient = (): OCI.core.BlockstorageClient => {
-  const provider = createOCIConfig();
-  return new OCI.core.BlockstorageClient({
-    authenticationDetailsProvider: provider,
-  });
-};
+export const getBlockStorageClient = (): OCI.core.BlockstorageClient =>
+  new OCI.core.BlockstorageClient({ authenticationDetailsProvider: getProvider() });
 
-/**
- * Cliente de Object Storage
- */
-export const getObjectStorageClient = (): OCI.objectStorage.ObjectStorageClient => {
-  const provider = createOCIConfig();
-  return new OCI.objectStorage.ObjectStorageClient({
-    authenticationDetailsProvider: provider,
-  });
-};
+export const getObjectStorageClient = (): OCI.objectstorage.ObjectStorageClient =>
+  new OCI.objectstorage.ObjectStorageClient({ authenticationDetailsProvider: getProvider() });
 
-/**
- * Cliente de Database
- */
-export const getDatabaseClient = (): OCI.database.DatabaseClient => {
-  const provider = createOCIConfig();
-  return new OCI.database.DatabaseClient({
-    authenticationDetailsProvider: provider,
-  });
-};
-
-/**
- * Obtener el ID del compartimento configurado
- */
-export const getCompartmentId = (): string => {
-  return getCompartmentId();
-};
+export const getDatabaseClient = (): OCI.database.DatabaseClient =>
+  new OCI.database.DatabaseClient({ authenticationDetailsProvider: getProvider() });

@@ -1,697 +1,394 @@
-import { Service, Tool, FunctionResponse } from '@modelcontextprotocol/mcp';
+import { Server } from '@modelcontextprotocol/sdk/server/index.js';
+import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
+import {
+  CallToolRequestSchema,
+  ListToolsRequestSchema,
+} from '@modelcontextprotocol/sdk/types.js';
 import {
   ComputeService,
   NetworkService,
   BlockStorageService,
   ObjectStorageService,
-  DatabaseService
+  DatabaseService,
 } from '../oci/services';
 import logger from '../utils/logger';
 
-// Instancia de MCP Service
-const mcpService = new Service({
-  description: 'Model Context Protocol service for Oracle Cloud Infrastructure'
-});
+export interface OciFunction {
+  name: string;
+  mcpName: string;
+  description: string;
+  parameters: Record<string, { type: string; description: string; required?: boolean; enum?: string[] }>;
+}
 
-// Herramienta para gestionar instancias de computación
-export const setupMCPTools = () => {
-  // Instancias de servicios OCI
-  const computeService = new ComputeService();
-  const networkService = new NetworkService();
-  const blockStorageService = new BlockStorageService();
-  const objectStorageService = new ObjectStorageService();
-  const databaseService = new DatabaseService();
+export interface OciTool {
+  name: string;
+  description: string;
+  getFunctions(): OciFunction[];
+}
 
-  // Herramienta de computación
-  const computeTool = new Tool({
-    name: 'compute',
-    description: 'Manage compute instances in Oracle Cloud Infrastructure'
-  });
+export interface MCPServiceInstance {
+  getTools(): OciTool[];
+  process(request: { tool: string; function: string; parameters: Record<string, unknown> }): Promise<{ status: string; content?: unknown; error?: string }>;
+}
 
-  // Función para listar instancias
-  computeTool.addFunction({
-    name: 'list_instances',
-    description: 'List all compute instances in the compartment',
-    parameters: {},
-    execute: async (): Promise<FunctionResponse> => {
-      try {
-        const instances = await computeService.listInstances();
-        
-        // Formatear los resultados
-        const formattedInstances = instances.map(instance => ({
-          id: instance.id,
-          displayName: instance.displayName,
-          shape: instance.shape,
-          lifecycleState: instance.lifecycleState,
-          availabilityDomain: instance.availabilityDomain,
-          timeCreated: instance.timeCreated ? new Date(instance.timeCreated).toISOString() : null,
-        }));
-        
-        return {
-          status: 'success',
-          content: formattedInstances
-        };
-      } catch (error) {
-        logger.error('Error executing list_instances function', { error });
-        return {
-          status: 'error',
-          error: `Failed to list instances: ${(error as Error).message}`
-        };
-      }
-    }
-  });
+export function setupMCPTools(): MCPServiceInstance {
+  // Per-service lazy initialization — only instantiate what's actually needed
+  let computeService: ComputeService | null = null;
+  let networkService: NetworkService | null = null;
+  let blockStorageService: BlockStorageService | null = null;
+  let objectStorageService: ObjectStorageService | null = null;
+  let databaseService: DatabaseService | null = null;
 
-  // Función para obtener una instancia específica
-  computeTool.addFunction({
-    name: 'get_instance',
-    description: 'Get details of a specific compute instance',
-    parameters: {
-      instance_id: {
-        description: 'The ID of the compute instance',
-        type: 'string',
-        required: true
-      }
+  const compute = () => { if (!computeService) computeService = new ComputeService(); return computeService; };
+  const network = () => { if (!networkService) networkService = new NetworkService(); return networkService; };
+  const blockStorage = () => { if (!blockStorageService) blockStorageService = new BlockStorageService(); return blockStorageService; };
+  const objectStorage = () => { if (!objectStorageService) objectStorageService = new ObjectStorageService(); return objectStorageService; };
+  const database = () => { if (!databaseService) databaseService = new DatabaseService(); return databaseService; };
+
+  const tools: OciTool[] = [
+    {
+      name: 'compute',
+      description: 'Oracle Cloud Infrastructure Compute operations',
+      getFunctions: (): OciFunction[] => [
+        {
+          name: 'list_instances',
+          mcpName: 'list_compute_instances',
+          description: 'List all compute instances in the compartment',
+          parameters: {},
+        },
+        {
+          name: 'get_instance',
+          mcpName: 'get_compute_instance',
+          description: 'Get details of a specific compute instance',
+          parameters: {
+            instance_id: { type: 'string', description: 'The OCID of the compute instance', required: true },
+          },
+        },
+        {
+          name: 'create_instance',
+          mcpName: 'create_compute_instance',
+          description: 'Create a new compute instance',
+          parameters: {
+            display_name: { type: 'string', description: 'Display name for the instance', required: true },
+            shape: { type: 'string', description: 'Shape (e.g., VM.Standard.E4.Flex)', required: true },
+            image_id: { type: 'string', description: 'OCID of the image to use', required: true },
+            subnet_id: { type: 'string', description: 'OCID of the subnet', required: true },
+            availability_domain: { type: 'string', description: 'Availability domain (e.g., AD-1)', required: true },
+            ocpus: { type: 'number', description: 'Number of OCPUs (for flex shapes)' },
+            memory_in_gbs: { type: 'number', description: 'Memory in GB (for flex shapes)' },
+            assign_public_ip: { type: 'boolean', description: 'Assign a public IP address (default: true)' },
+          },
+        },
+      ],
     },
-    execute: async ({ instance_id }): Promise<FunctionResponse> => {
+    {
+      name: 'network',
+      description: 'Oracle Cloud Infrastructure Networking operations',
+      getFunctions: (): OciFunction[] => [
+        {
+          name: 'list_vcns',
+          mcpName: 'list_vcns',
+          description: 'List all Virtual Cloud Networks (VCNs) in the compartment',
+          parameters: {},
+        },
+        {
+          name: 'get_vcn',
+          mcpName: 'get_vcn',
+          description: 'Get details of a specific VCN',
+          parameters: {
+            vcn_id: { type: 'string', description: 'The OCID of the VCN', required: true },
+          },
+        },
+        {
+          name: 'create_vcn',
+          mcpName: 'create_vcn',
+          description: 'Create a new Virtual Cloud Network',
+          parameters: {
+            display_name: { type: 'string', description: 'Display name for the VCN', required: true },
+            cidr_block: { type: 'string', description: 'CIDR block (e.g., 10.0.0.0/16)', required: true },
+            dns_label: { type: 'string', description: 'DNS label (optional)' },
+          },
+        },
+        {
+          name: 'list_subnets',
+          mcpName: 'list_subnets',
+          description: 'List all subnets in the compartment',
+          parameters: {
+            vcn_id: { type: 'string', description: 'Filter by VCN OCID (optional)' },
+          },
+        },
+        {
+          name: 'create_subnet',
+          mcpName: 'create_subnet',
+          description: 'Create a new subnet in a VCN',
+          parameters: {
+            display_name: { type: 'string', description: 'Display name for the subnet', required: true },
+            vcn_id: { type: 'string', description: 'OCID of the parent VCN', required: true },
+            cidr_block: { type: 'string', description: 'CIDR block (e.g., 10.0.1.0/24)', required: true },
+            availability_domain: { type: 'string', description: 'Availability domain (optional)' },
+            dns_label: { type: 'string', description: 'DNS label (optional)' },
+          },
+        },
+      ],
+    },
+    {
+      name: 'block_storage',
+      description: 'Oracle Cloud Infrastructure Block Storage operations',
+      getFunctions: (): OciFunction[] => [
+        {
+          name: 'list_volumes',
+          mcpName: 'list_block_volumes',
+          description: 'List all block storage volumes in the compartment',
+          parameters: {},
+        },
+        {
+          name: 'get_volume',
+          mcpName: 'get_block_volume',
+          description: 'Get details of a specific block volume',
+          parameters: {
+            volume_id: { type: 'string', description: 'The OCID of the block volume', required: true },
+          },
+        },
+        {
+          name: 'create_volume',
+          mcpName: 'create_block_volume',
+          description: 'Create a new block storage volume',
+          parameters: {
+            display_name: { type: 'string', description: 'Display name for the volume', required: true },
+            availability_domain: { type: 'string', description: 'Availability domain', required: true },
+            size_in_gbs: { type: 'number', description: 'Size in GB (optional, default 50)' },
+          },
+        },
+      ],
+    },
+    {
+      name: 'object_storage',
+      description: 'Oracle Cloud Infrastructure Object Storage operations',
+      getFunctions: (): OciFunction[] => [
+        {
+          name: 'list_buckets',
+          mcpName: 'list_object_storage_buckets',
+          description: 'List all object storage buckets in the compartment',
+          parameters: {},
+        },
+        {
+          name: 'create_bucket',
+          mcpName: 'create_object_storage_bucket',
+          description: 'Create a new object storage bucket',
+          parameters: {
+            name: { type: 'string', description: 'Name of the bucket', required: true },
+            public_access_type: {
+              type: 'string',
+              description: 'Public access type (optional, default: NoPublicAccess)',
+              enum: ['NoPublicAccess', 'ObjectRead', 'ObjectReadWithoutList'],
+            },
+            storage_tier: {
+              type: 'string',
+              description: 'Storage tier (optional, default: Standard)',
+              enum: ['Standard', 'Archive'],
+            },
+          },
+        },
+      ],
+    },
+    {
+      name: 'database',
+      description: 'Oracle Cloud Infrastructure Database operations',
+      getFunctions: (): OciFunction[] => [
+        {
+          name: 'list_autonomous_databases',
+          mcpName: 'list_autonomous_databases',
+          description: 'List all Autonomous Databases in the compartment',
+          parameters: {},
+        },
+        {
+          name: 'create_autonomous_database',
+          mcpName: 'create_autonomous_database',
+          description: 'Create a new Autonomous Database',
+          parameters: {
+            display_name: { type: 'string', description: 'Display name', required: true },
+            db_name: { type: 'string', description: 'Database name (alphanumeric, max 14 chars)', required: true },
+            admin_password: { type: 'string', description: 'Admin password', required: true },
+            cpu_core_count: { type: 'number', description: 'Number of CPU cores', required: true },
+            data_storage_size_in_tbs: { type: 'number', description: 'Storage size in TB', required: true },
+            is_free_tier: { type: 'boolean', description: 'Use free tier (optional)' },
+            db_workload: {
+              type: 'string',
+              description: 'Workload type (optional)',
+              enum: ['OLTP', 'DW', 'AJD', 'APEX'],
+            },
+          },
+        },
+      ],
+    },
+  ];
+
+  return {
+    getTools: () => tools,
+    async process({ tool, function: functionName, parameters }) {
+      const toolDef = tools.find(t => t.name === tool);
+      if (!toolDef) return { status: 'error', error: `Unknown tool: ${tool}` };
+
+      const fnDef = toolDef.getFunctions().find(f => f.name === functionName);
+      if (!fnDef) return { status: 'error', error: `Unknown function: ${tool}.${functionName}` };
+
+      const missing = Object.entries(fnDef.parameters)
+        .filter(([key, p]) => p.required && parameters[key] == null)
+        .map(([key]) => key);
+      if (missing.length > 0) {
+        return { status: 'error', error: `Missing required parameters: ${missing.join(', ')}` };
+      }
+
       try {
-        const instance = await computeService.getInstance(instance_id);
-        
-        return {
-          status: 'success',
-          content: {
-            id: instance.id,
-            displayName: instance.displayName,
-            shape: instance.shape,
-            lifecycleState: instance.lifecycleState,
-            availabilityDomain: instance.availabilityDomain,
-            timeCreated: instance.timeCreated ? new Date(instance.timeCreated).toISOString() : null,
-            metadata: instance.metadata,
+        let result: unknown;
+        switch (`${tool}.${functionName}`) {
+          case 'compute.list_instances':
+            result = await compute().listInstances();
+            break;
+          case 'compute.get_instance':
+            result = await compute().getInstance(parameters.instance_id as string);
+            break;
+          case 'compute.create_instance': {
+            const shapeConfig = (parameters.ocpus || parameters.memory_in_gbs)
+              ? { ocpus: parameters.ocpus as number, memoryInGBs: parameters.memory_in_gbs as number }
+              : undefined;
+            result = await compute().createInstance(
+              parameters.display_name as string, parameters.shape as string,
+              parameters.image_id as string, parameters.subnet_id as string,
+              parameters.availability_domain as string, undefined, shapeConfig,
+              parameters.assign_public_ip !== false
+            );
+            break;
           }
-        };
+          case 'network.list_vcns':
+            result = await network().listVcns();
+            break;
+          case 'network.get_vcn':
+            result = await network().getVcn(parameters.vcn_id as string);
+            break;
+          case 'network.create_vcn':
+            result = await network().createVcn(
+              parameters.display_name as string, parameters.cidr_block as string,
+              parameters.dns_label as string | undefined
+            );
+            break;
+          case 'network.list_subnets':
+            result = await network().listSubnets(parameters.vcn_id as string | undefined);
+            break;
+          case 'network.create_subnet':
+            result = await network().createSubnet(
+              parameters.display_name as string, parameters.vcn_id as string,
+              parameters.cidr_block as string, parameters.availability_domain as string | undefined,
+              parameters.dns_label as string | undefined
+            );
+            break;
+          case 'block_storage.list_volumes':
+            result = await blockStorage().listVolumes();
+            break;
+          case 'block_storage.get_volume':
+            result = await blockStorage().getVolume(parameters.volume_id as string);
+            break;
+          case 'block_storage.create_volume':
+            result = await blockStorage().createVolume(
+              parameters.display_name as string, parameters.availability_domain as string,
+              parameters.size_in_gbs as number | undefined
+            );
+            break;
+          case 'object_storage.list_buckets':
+            result = await objectStorage().listBuckets();
+            break;
+          case 'object_storage.create_bucket':
+            result = await objectStorage().createBucket(
+              parameters.name as string,
+              parameters.public_access_type as string | undefined,
+              parameters.storage_tier as string | undefined
+            );
+            break;
+          case 'database.list_autonomous_databases':
+            result = await database().listAutonomousDatabases();
+            break;
+          case 'database.create_autonomous_database':
+            result = await database().createAutonomousDatabase(
+              parameters.display_name as string, parameters.db_name as string,
+              parameters.admin_password as string, parameters.cpu_core_count as number,
+              parameters.data_storage_size_in_tbs as number,
+              parameters.is_free_tier as boolean | undefined,
+              parameters.db_workload as string | undefined
+            );
+            break;
+          default:
+            return { status: 'error', error: `Unhandled tool.function: ${tool}.${functionName}` };
+        }
+        return { status: 'success', content: result };
       } catch (error) {
-        logger.error('Error executing get_instance function', { error });
-        return {
-          status: 'error',
-          error: `Failed to get instance: ${(error as Error).message}`
-        };
-      }
-    }
-  });
-
-  // Función para crear una instancia
-  computeTool.addFunction({
-    name: 'create_instance',
-    description: 'Create a new compute instance',
-    parameters: {
-      display_name: {
-        description: 'Display name for the instance',
-        type: 'string',
-        required: true
-      },
-      shape: {
-        description: 'Shape/size of the instance (e.g., VM.Standard.E4.Flex)',
-        type: 'string',
-        required: true
-      },
-      image_id: {
-        description: 'ID of the image to use',
-        type: 'string',
-        required: true
-      },
-      subnet_id: {
-        description: 'ID of the subnet where the instance will be launched',
-        type: 'string',
-        required: true
-      },
-      availability_domain: {
-        description: 'Availability domain (e.g., AD-1)',
-        type: 'string',
-        required: true
-      },
-      metadata: {
-        description: 'Instance metadata (optional)',
-        type: 'object',
-        required: false
-      },
-      shape_config: {
-        description: 'Shape configuration (optional for flexible shapes)',
-        type: 'object',
-        required: false
+        logger.error(`Error in MCP process: ${tool}.${functionName}`, { error });
+        return { status: 'error', error: (error as Error).message };
       }
     },
-    execute: async ({ 
-      display_name, 
-      shape, 
-      image_id, 
-      subnet_id, 
-      availability_domain, 
-      metadata, 
-      shape_config 
-    }): Promise<FunctionResponse> => {
-      try {
-        const instance = await computeService.createInstance(
-          display_name,
-          shape,
-          image_id,
-          subnet_id,
-          availability_domain,
-          metadata,
-          shape_config
-        );
-        
+  };
+}
+
+export async function startMCPServer() {
+  const server = new Server(
+    { name: 'oci-mcp-server', version: '0.1.0' },
+    { capabilities: { tools: {} } }
+  );
+
+  const mcpService = setupMCPTools();
+
+  // Build MCP name → { tool, fn } map from the single source of truth
+  const nameMap = new Map<string, { tool: string; fn: string }>();
+  for (const tool of mcpService.getTools()) {
+    for (const fn of tool.getFunctions()) {
+      nameMap.set(fn.mcpName, { tool: tool.name, fn: fn.name });
+    }
+  }
+
+  server.setRequestHandler(ListToolsRequestSchema, async () => ({
+    tools: mcpService.getTools().flatMap(tool =>
+      tool.getFunctions().map(fn => {
+        const properties: Record<string, object> = {};
+        const required: string[] = [];
+        for (const [key, param] of Object.entries(fn.parameters)) {
+          const schema: Record<string, unknown> = { type: param.type, description: param.description };
+          if (param.enum) schema['enum'] = param.enum;
+          properties[key] = schema;
+          if (param.required) required.push(key);
+        }
         return {
-          status: 'success',
-          content: {
-            id: instance.id,
-            displayName: instance.displayName,
-            shape: instance.shape,
-            lifecycleState: instance.lifecycleState,
-            availabilityDomain: instance.availabilityDomain,
-            timeCreated: instance.timeCreated ? new Date(instance.timeCreated).toISOString() : null,
-          }
+          name: fn.mcpName,
+          description: fn.description,
+          inputSchema: { type: 'object' as const, properties, required },
         };
-      } catch (error) {
-        logger.error('Error executing create_instance function', { error });
-        return {
-          status: 'error',
-          error: `Failed to create instance: ${(error as Error).message}`
-        };
+      })
+    ),
+  }));
+
+  server.setRequestHandler(CallToolRequestSchema, async (request) => {
+    const { name, arguments: args = {} } = request.params;
+    logger.info(`Calling tool: ${name}`, { args });
+
+    const mapping = nameMap.get(name);
+    if (!mapping) {
+      return { content: [{ type: 'text', text: `Unknown tool: ${name}` }], isError: true };
+    }
+
+    try {
+      const result = await mcpService.process({ tool: mapping.tool, function: mapping.fn, parameters: args });
+      if (result.status === 'error') {
+        return { content: [{ type: 'text', text: result.error ?? 'Unknown error' }], isError: true };
       }
+      return { content: [{ type: 'text', text: JSON.stringify(result.content, null, 2) }] };
+    } catch (error) {
+      logger.error(`Tool execution error: ${name}`, { error });
+      return {
+        content: [{ type: 'text', text: `Error executing ${name}: ${(error as Error).message}` }],
+        isError: true,
+      };
     }
   });
 
-  // Agregar la herramienta de computación al servicio MCP
-  mcpService.addTool(computeTool);
-
-  // Herramienta de redes
-  const networkTool = new Tool({
-    name: 'network',
-    description: 'Manage virtual networks (VCNs) and subnets in Oracle Cloud Infrastructure'
-  });
-
-  // Función para listar VCNs
-  networkTool.addFunction({
-    name: 'list_vcns',
-    description: 'List all VCNs in the compartment',
-    parameters: {},
-    execute: async (): Promise<FunctionResponse> => {
-      try {
-        const vcns = await networkService.listVcns();
-        
-        const formattedVcns = vcns.map(vcn => ({
-          id: vcn.id,
-          displayName: vcn.displayName,
-          cidrBlock: vcn.cidrBlock,
-          lifecycleState: vcn.lifecycleState,
-          timeCreated: vcn.timeCreated ? new Date(vcn.timeCreated).toISOString() : null,
-          dnsLabel: vcn.dnsLabel,
-        }));
-        
-        return {
-          status: 'success',
-          content: formattedVcns
-        };
-      } catch (error) {
-        logger.error('Error executing list_vcns function', { error });
-        return {
-          status: 'error',
-          error: `Failed to list VCNs: ${(error as Error).message}`
-        };
-      }
-    }
-  });
-
-  // Función para crear una VCN
-  networkTool.addFunction({
-    name: 'create_vcn',
-    description: 'Create a new VCN',
-    parameters: {
-      display_name: {
-        description: 'Display name for the VCN',
-        type: 'string',
-        required: true
-      },
-      cidr_block: {
-        description: 'CIDR block for the VCN (e.g., 10.0.0.0/16)',
-        type: 'string',
-        required: true
-      },
-      dns_label: {
-        description: 'DNS label for the VCN (optional)',
-        type: 'string',
-        required: false
-      }
-    },
-    execute: async ({ display_name, cidr_block, dns_label }): Promise<FunctionResponse> => {
-      try {
-        const vcn = await networkService.createVcn(
-          display_name,
-          cidr_block,
-          dns_label
-        );
-        
-        return {
-          status: 'success',
-          content: {
-            id: vcn.id,
-            displayName: vcn.displayName,
-            cidrBlock: vcn.cidrBlock,
-            lifecycleState: vcn.lifecycleState,
-            timeCreated: vcn.timeCreated ? new Date(vcn.timeCreated).toISOString() : null,
-            dnsLabel: vcn.dnsLabel,
-          }
-        };
-      } catch (error) {
-        logger.error('Error executing create_vcn function', { error });
-        return {
-          status: 'error',
-          error: `Failed to create VCN: ${(error as Error).message}`
-        };
-      }
-    }
-  });
-
-  // Función para listar subredes
-  networkTool.addFunction({
-    name: 'list_subnets',
-    description: 'List all subnets in the compartment, optionally filtered by VCN',
-    parameters: {
-      vcn_id: {
-        description: 'VCN ID to filter subnets (optional)',
-        type: 'string',
-        required: false
-      }
-    },
-    execute: async ({ vcn_id }): Promise<FunctionResponse> => {
-      try {
-        const subnets = await networkService.listSubnets(vcn_id);
-        
-        const formattedSubnets = subnets.map(subnet => ({
-          id: subnet.id,
-          displayName: subnet.displayName,
-          cidrBlock: subnet.cidrBlock,
-          vcnId: subnet.vcnId,
-          availabilityDomain: subnet.availabilityDomain,
-          lifecycleState: subnet.lifecycleState,
-          timeCreated: subnet.timeCreated ? new Date(subnet.timeCreated).toISOString() : null,
-          dnsLabel: subnet.dnsLabel,
-        }));
-        
-        return {
-          status: 'success',
-          content: formattedSubnets
-        };
-      } catch (error) {
-        logger.error('Error executing list_subnets function', { error });
-        return {
-          status: 'error',
-          error: `Failed to list subnets: ${(error as Error).message}`
-        };
-      }
-    }
-  });
-
-  // Función para crear una subred
-  networkTool.addFunction({
-    name: 'create_subnet',
-    description: 'Create a new subnet in a VCN',
-    parameters: {
-      display_name: {
-        description: 'Display name for the subnet',
-        type: 'string',
-        required: true
-      },
-      vcn_id: {
-        description: 'ID of the VCN where the subnet will be created',
-        type: 'string',
-        required: true
-      },
-      cidr_block: {
-        description: 'CIDR block for the subnet (e.g., 10.0.1.0/24)',
-        type: 'string',
-        required: true
-      },
-      availability_domain: {
-        description: 'Availability domain (optional)',
-        type: 'string',
-        required: false
-      },
-      dns_label: {
-        description: 'DNS label for the subnet (optional)',
-        type: 'string',
-        required: false
-      }
-    },
-    execute: async ({ 
-      display_name, 
-      vcn_id, 
-      cidr_block, 
-      availability_domain, 
-      dns_label 
-    }): Promise<FunctionResponse> => {
-      try {
-        const subnet = await networkService.createSubnet(
-          display_name,
-          vcn_id,
-          cidr_block,
-          availability_domain,
-          dns_label
-        );
-        
-        return {
-          status: 'success',
-          content: {
-            id: subnet.id,
-            displayName: subnet.displayName,
-            cidrBlock: subnet.cidrBlock,
-            vcnId: subnet.vcnId,
-            availabilityDomain: subnet.availabilityDomain,
-            lifecycleState: subnet.lifecycleState,
-            timeCreated: subnet.timeCreated ? new Date(subnet.timeCreated).toISOString() : null,
-            dnsLabel: subnet.dnsLabel,
-          }
-        };
-      } catch (error) {
-        logger.error('Error executing create_subnet function', { error });
-        return {
-          status: 'error',
-          error: `Failed to create subnet: ${(error as Error).message}`
-        };
-      }
-    }
-  });
-
-  // Agregar la herramienta de redes al servicio MCP
-  mcpService.addTool(networkTool);
-
-  // Herramienta de almacenamiento en bloque
-  const blockStorageTool = new Tool({
-    name: 'block_storage',
-    description: 'Manage block storage volumes in Oracle Cloud Infrastructure'
-  });
-
-  // Función para listar volúmenes
-  blockStorageTool.addFunction({
-    name: 'list_volumes',
-    description: 'List all volumes in the compartment',
-    parameters: {},
-    execute: async (): Promise<FunctionResponse> => {
-      try {
-        const volumes = await blockStorageService.listVolumes();
-        
-        const formattedVolumes = volumes.map(volume => ({
-          id: volume.id,
-          displayName: volume.displayName,
-          sizeInGBs: volume.sizeInGBs,
-          lifecycleState: volume.lifecycleState,
-          availabilityDomain: volume.availabilityDomain,
-          timeCreated: volume.timeCreated ? new Date(volume.timeCreated).toISOString() : null,
-        }));
-        
-        return {
-          status: 'success',
-          content: formattedVolumes
-        };
-      } catch (error) {
-        logger.error('Error executing list_volumes function', { error });
-        return {
-          status: 'error',
-          error: `Failed to list volumes: ${(error as Error).message}`
-        };
-      }
-    }
-  });
-
-  // Función para crear un volumen
-  blockStorageTool.addFunction({
-    name: 'create_volume',
-    description: 'Create a new block storage volume',
-    parameters: {
-      display_name: {
-        description: 'Display name for the volume',
-        type: 'string',
-        required: true
-      },
-      availability_domain: {
-        description: 'Availability domain',
-        type: 'string',
-        required: true
-      },
-      size_in_gbs: {
-        description: 'Size of the volume in GB (optional)',
-        type: 'number',
-        required: false
-      }
-    },
-    execute: async ({ display_name, availability_domain, size_in_gbs }): Promise<FunctionResponse> => {
-      try {
-        const volume = await blockStorageService.createVolume(
-          display_name,
-          availability_domain,
-          size_in_gbs
-        );
-        
-        return {
-          status: 'success',
-          content: {
-            id: volume.id,
-            displayName: volume.displayName,
-            sizeInGBs: volume.sizeInGBs,
-            lifecycleState: volume.lifecycleState,
-            availabilityDomain: volume.availabilityDomain,
-            timeCreated: volume.timeCreated ? new Date(volume.timeCreated).toISOString() : null,
-          }
-        };
-      } catch (error) {
-        logger.error('Error executing create_volume function', { error });
-        return {
-          status: 'error',
-          error: `Failed to create volume: ${(error as Error).message}`
-        };
-      }
-    }
-  });
-
-  // Agregar la herramienta de almacenamiento en bloque al servicio MCP
-  mcpService.addTool(blockStorageTool);
-
-  // Herramienta de almacenamiento de objetos
-  const objectStorageTool = new Tool({
-    name: 'object_storage',
-    description: 'Manage object storage buckets in Oracle Cloud Infrastructure'
-  });
-
-  // Función para listar buckets
-  objectStorageTool.addFunction({
-    name: 'list_buckets',
-    description: 'List all buckets in the compartment',
-    parameters: {},
-    execute: async (): Promise<FunctionResponse> => {
-      try {
-        const buckets = await objectStorageService.listBuckets();
-        
-        const formattedBuckets = buckets.map(bucket => ({
-          name: bucket.name,
-          compartmentId: bucket.compartmentId,
-          namespace: bucket.namespace,
-          createdBy: bucket.createdBy,
-          timeCreated: bucket.timeCreated ? new Date(bucket.timeCreated).toISOString() : null,
-        }));
-        
-        return {
-          status: 'success',
-          content: formattedBuckets
-        };
-      } catch (error) {
-        logger.error('Error executing list_buckets function', { error });
-        return {
-          status: 'error',
-          error: `Failed to list buckets: ${(error as Error).message}`
-        };
-      }
-    }
-  });
-
-  // Función para crear un bucket
-  objectStorageTool.addFunction({
-    name: 'create_bucket',
-    description: 'Create a new object storage bucket',
-    parameters: {
-      name: {
-        description: 'Name of the bucket',
-        type: 'string',
-        required: true
-      },
-      public_access_type: {
-        description: 'Public access type (optional)',
-        type: 'string',
-        required: false
-      },
-      storage_tier: {
-        description: 'Storage tier (optional)',
-        type: 'string',
-        required: false
-      }
-    },
-    execute: async ({ name, public_access_type, storage_tier }): Promise<FunctionResponse> => {
-      try {
-        const bucket = await objectStorageService.createBucket(
-          name,
-          public_access_type,
-          storage_tier
-        );
-        
-        return {
-          status: 'success',
-          content: {
-            name: bucket.name,
-            compartmentId: bucket.compartmentId,
-            namespace: bucket.namespace,
-            createdBy: bucket.createdBy,
-            timeCreated: bucket.timeCreated ? new Date(bucket.timeCreated).toISOString() : null,
-            publicAccessType: bucket.publicAccessType,
-            storageTier: bucket.storageTier,
-          }
-        };
-      } catch (error) {
-        logger.error('Error executing create_bucket function', { error });
-        return {
-          status: 'error',
-          error: `Failed to create bucket: ${(error as Error).message}`
-        };
-      }
-    }
-  });
-
-  // Agregar la herramienta de almacenamiento de objetos al servicio MCP
-  mcpService.addTool(objectStorageTool);
-
-  // Herramienta de base de datos
-  const databaseTool = new Tool({
-    name: 'database',
-    description: 'Manage autonomous databases in Oracle Cloud Infrastructure'
-  });
-
-  // Función para listar bases de datos autónomas
-  databaseTool.addFunction({
-    name: 'list_autonomous_databases',
-    description: 'List all autonomous databases in the compartment',
-    parameters: {},
-    execute: async (): Promise<FunctionResponse> => {
-      try {
-        const databases = await databaseService.listAutonomousDatabases();
-        
-        const formattedDatabases = databases.map(db => ({
-          id: db.id,
-          displayName: db.displayName,
-          dbName: db.dbName,
-          lifecycleState: db.lifecycleState,
-          dbWorkload: db.dbWorkload,
-          isFreeTier: db.isFreeTier,
-          timeCreated: db.timeCreated ? new Date(db.timeCreated).toISOString() : null,
-        }));
-        
-        return {
-          status: 'success',
-          content: formattedDatabases
-        };
-      } catch (error) {
-        logger.error('Error executing list_autonomous_databases function', { error });
-        return {
-          status: 'error',
-          error: `Failed to list autonomous databases: ${(error as Error).message}`
-        };
-      }
-    }
-  });
-
-  // Función para crear una base de datos autónoma
-  databaseTool.addFunction({
-    name: 'create_autonomous_database',
-    description: 'Create a new autonomous database',
-    parameters: {
-      display_name: {
-        description: 'Display name for the database',
-        type: 'string',
-        required: true
-      },
-      db_name: {
-        description: 'Database name',
-        type: 'string',
-        required: true
-      },
-      admin_password: {
-        description: 'Admin password',
-        type: 'string',
-        required: true
-      },
-      cpu_core_count: {
-        description: 'Number of CPU cores',
-        type: 'number',
-        required: true
-      },
-      data_storage_size_in_tbs: {
-        description: 'Data storage size in TB',
-        type: 'number',
-        required: true
-      },
-      is_free_tier: {
-        description: 'Is free tier?',
-        type: 'boolean',
-        required: false
-      },
-      db_workload: {
-        description: 'Database workload type',
-        type: 'string',
-        required: false
-      }
-    },
-    execute: async ({ 
-      display_name, 
-      db_name, 
-      admin_password, 
-      cpu_core_count, 
-      data_storage_size_in_tbs, 
-      is_free_tier, 
-      db_workload 
-    }): Promise<FunctionResponse> => {
-      try {
-        const database = await databaseService.createAutonomousDatabase(
-          display_name,
-          db_name,
-          admin_password,
-          cpu_core_count,
-          data_storage_size_in_tbs,
-          is_free_tier,
-          db_workload
-        );
-        
-        return {
-          status: 'success',
-          content: {
-            id: database.id,
-            displayName: database.displayName,
-            dbName: database.dbName,
-            lifecycleState: database.lifecycleState,
-            dbWorkload: database.dbWorkload,
-            isFreeTier: database.isFreeTier,
-            timeCreated: database.timeCreated ? new Date(database.timeCreated).toISOString() : null,
-          }
-        };
-      } catch (error) {
-        logger.error('Error executing create_autonomous_database function', { error });
-        return {
-          status: 'error',
-          error: `Failed to create autonomous database: ${(error as Error).message}`
-        };
-      }
-    }
-  });
-
-  // Agregar la herramienta de base de datos al servicio MCP
-  mcpService.addTool(databaseTool);
-
-  return mcpService;
-};
-
-export { mcpService };
+  const transport = new StdioServerTransport();
+  await server.connect(transport);
+  logger.info('OCI MCP Server started');
+}

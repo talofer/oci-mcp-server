@@ -1,9 +1,11 @@
 import winston from 'winston';
-import { serverConfig } from '../config';
 
-// Configuración del logger
+const logLevel = process.env.LOG_LEVEL || 'info';
+const nodeEnv = process.env.NODE_ENV || 'development';
+
+// Logger configuration
 const logger = winston.createLogger({
-  level: serverConfig.logLevel,
+  level: logLevel,
   format: winston.format.combine(
     winston.format.timestamp(),
     winston.format.errors({ stack: true }),
@@ -20,8 +22,8 @@ const logger = winston.createLogger({
   ],
 });
 
-// En entorno de producción, registrar a archivo
-if (serverConfig.nodeEnv === 'production') {
+// In production, also log to files
+if (nodeEnv === 'production') {
   logger.add(
     new winston.transports.File({
       filename: 'logs/error.log',
