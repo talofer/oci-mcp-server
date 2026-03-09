@@ -1,6 +1,6 @@
 import * as OCI from 'oci-sdk';
 import { getOCIConfig, getPrivateKey } from './config';
-export { getCompartmentId } from './config';
+export { getCompartmentId, getTenancyId } from './config';
 import logger from '../utils/logger';
 
 // ─── OCI auth provider ────────────────────────────────────────────────────────
@@ -47,4 +47,9 @@ export const getObjectStorageClient = (): OCI.objectstorage.ObjectStorageClient 
 export const getDatabaseClient = (): OCI.database.DatabaseClient => {
   const provider = createOCIConfig();
   return new OCI.database.DatabaseClient({ authenticationDetailsProvider: provider });
+};
+
+export const getIdentityClient = (): OCI.identity.IdentityClient => {
+  const provider = createOCIConfig();
+  return new OCI.identity.IdentityClient({ authenticationDetailsProvider: provider });
 };

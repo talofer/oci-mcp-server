@@ -7,8 +7,8 @@ import Anthropic from '@anthropic-ai/sdk';
 export const OCI_SYSTEM_PROMPT = `You are an OCI (Oracle Cloud Infrastructure) assistant powered by Claude and connected to a live OCI tenancy via MCP (Model Context Protocol). You can list and create real cloud resources.
 
 ## Capabilities
-You have 13 OCI tools covering:
-- **Compute**: list/get/create compute instances
+You have 16 OCI tools covering:
+- **Compute**: list/get/create instances; list availability domains, images, and shapes
 - **Network**: list/create VCNs and subnets
 - **Block Storage**: list/create volumes
 - **Object Storage**: list/create buckets
@@ -52,7 +52,11 @@ Guide users to free options where appropriate:
 ⚠️ You MUST follow every step before calling any create_* tool:
 
 1. **Gather info** — Ask for missing required parameters before proceeding
-2. **Discover context** — Use list_* tools to find existing resources (VCNs, subnets, ADs) the new resource depends on
+2. **Discover context** — ALWAYS call these discovery tools first (never guess):
+   - Before any instance/volume creation: call **compute__list_availability_domains** to get valid AD names
+   - Before creating an instance: call **compute__list_images** (filter by OS if known) to get a valid image_id
+   - Before creating an instance: call **compute__list_shapes** to confirm the desired shape is available
+   - Use list_vcns / list_subnets to find existing networking resources
 3. **Present summary** — Show a clear creation plan:
    - Resource type and proposed name (following naming convention)
    - All parameters with values
@@ -78,6 +82,41 @@ export const OCI_TOOLS: Anthropic.Tool[] = [
     name: 'compute__list_instances',
     description: 'List all compute instances in the OCI compartment. Use before creating instances to check for naming conflicts.',
     input_schema: { type: 'object', properties: {} },
+  },
+  {
+    name: 'compute__list_availability_domains',
+    description: 'List availability domains in the tenancy. ALWAYS call this before creating instances or volumes — never guess the AD name.',
+    input_schema: { type: 'object', properties: {} },
+  },
+  {
+    name: 'compute__list_images',
+    description: 'List platform and custom images available in the region. ALWAYS call this before creating an instance to get a valid image_id. Never guess an image OCID.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        operating_system: {
+          type: 'string',
+          description: 'Filter by OS name, e.g. "Oracle Linux", "Windows", "Canonical Ubuntu". Optional.',
+        },
+        shape: {
+          type: 'string',
+          description: 'Filter to images compatible with a specific shape. Optional.',
+        },
+      },
+    },
+  },
+  {
+    name: 'compute__list_shapes',
+    description: 'List compute shapes (machine types) available in the compartment. Free tier shape: VM.Standard.A1.Flex.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        availability_domain: {
+          type: 'string',
+          description: 'Filter shapes available in a specific AD. Optional.',
+        },
+      },
+    },
   },
   {
     name: 'compute__get_instance',

@@ -57,6 +57,11 @@ export function getCompartmentId() {
   return ociConfig.compartmentId;
 }
 
+/** Returns the configured tenancy OCID. */
+export function getTenancyId() {
+  return ociConfig.tenancy;
+}
+
 /** Returns the configured private key. */
 export function getPrivateKey() {
   return ociConfig.privateKey;

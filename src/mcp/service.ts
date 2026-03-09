@@ -12,6 +12,7 @@ import {
   BlockStorageService,
   ObjectStorageService,
   DatabaseService,
+  IdentityService,
 } from '../oci/services';
 import logger from '../utils/logger';
 
@@ -30,6 +31,41 @@ const MCP_TOOLS: MCPTool[] = [
       type: 'object',
       properties: { instance_id: { type: 'string', description: 'Instance OCID' } },
       required: ['instance_id'],
+    },
+  },
+  {
+    name: 'compute__list_availability_domains',
+    description: 'List availability domains in the tenancy. Always call this before creating instances or volumes to get valid AD names.',
+    inputSchema: { type: 'object', properties: {} },
+  },
+  {
+    name: 'compute__list_images',
+    description: 'List platform and custom images available in the region. Always call this before creating an instance to get a valid image_id.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        operating_system: {
+          type: 'string',
+          description: 'Filter by OS name, e.g. "Oracle Linux", "Windows". Optional.',
+        },
+        shape: {
+          type: 'string',
+          description: 'Filter to images compatible with a specific shape. Optional.',
+        },
+      },
+    },
+  },
+  {
+    name: 'compute__list_shapes',
+    description: 'List compute shapes (machine types) available in the compartment.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        availability_domain: {
+          type: 'string',
+          description: 'Filter shapes available in a specific AD. Optional.',
+        },
+      },
     },
   },
   {
@@ -160,14 +196,16 @@ let _networkService: NetworkService;
 let _blockStorageService: BlockStorageService;
 let _objectStorageService: ObjectStorageService;
 let _databaseService: DatabaseService;
+let _identityService: IdentityService;
 
 function getServices() {
   if (!_computeService) {
-    _computeService = new ComputeService();
-    _networkService = new NetworkService();
-    _blockStorageService = new BlockStorageService();
-    _objectStorageService = new ObjectStorageService();
-    _databaseService = new DatabaseService();
+    _computeService        = new ComputeService();
+    _networkService        = new NetworkService();
+    _blockStorageService   = new BlockStorageService();
+    _objectStorageService  = new ObjectStorageService();
+    _databaseService       = new DatabaseService();
+    _identityService       = new IdentityService();
   }
   return {
     cs: _computeService,
@@ -175,6 +213,7 @@ function getServices() {
     bs: _blockStorageService,
     os: _objectStorageService,
     ds: _databaseService,
+    is: _identityService,
   };
 }
 
@@ -183,7 +222,7 @@ function getServices() {
 type Args = Record<string, unknown>;
 
 async function executeOCITool(name: string, a: Args): Promise<unknown> {
-  const { cs, ns, bs, os, ds } = getServices();
+  const { cs, ns, bs, os, ds, is } = getServices();
 
   switch (name) {
     /* ── COMPUTE ── */
@@ -198,6 +237,36 @@ async function executeOCITool(name: string, a: Args): Promise<unknown> {
       const i = await cs.getInstance(a.instance_id as string);
       return { id: i.id, displayName: i.displayName, shape: i.shape, lifecycleState: i.lifecycleState };
     }
+
+    case 'compute__list_availability_domains':
+      return (await is.listAvailabilityDomains()).map(ad => ({
+        name: ad.name,
+        id:   ad.id,
+      }));
+
+    case 'compute__list_images':
+      return (await cs.listImages(
+        a.operating_system as string | undefined,
+        a.shape            as string | undefined,
+      )).map(img => ({
+        id:                     img.id,
+        displayName:            img.displayName,
+        operatingSystem:        img.operatingSystem,
+        operatingSystemVersion: img.operatingSystemVersion,
+        lifecycleState:         img.lifecycleState,
+        timeCreated:            img.timeCreated ? new Date(img.timeCreated).toISOString() : null,
+      }));
+
+    case 'compute__list_shapes':
+      return (await cs.listShapes(a.availability_domain as string | undefined)).map(s => ({
+        shape:                s.shape,
+        processorDescription: s.processorDescription,
+        ocpus:                s.ocpus,
+        memoryInGBs:          s.memoryInGBs,
+        isFlexible:           s.isFlexible,
+        ocpuOptions:          s.ocpuOptions,
+        memoryOptions:        s.memoryOptions,
+      }));
 
     case 'compute__create_instance': {
       const i = await cs.createInstance(

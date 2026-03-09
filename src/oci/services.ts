@@ -5,7 +5,9 @@ import {
   getBlockStorageClient,
   getObjectStorageClient,
   getDatabaseClient,
+  getIdentityClient,
   getCompartmentId,
+  getTenancyId,
 } from './client';
 import logger from '../utils/logger';
 
@@ -36,6 +38,33 @@ export class ComputeService {
       return response.instance;
     } catch (error) {
       logger.error(`Error getting compute instance: ${instanceId}`, { error });
+      throw error;
+    }
+  }
+
+  async listImages(operatingSystem?: string, shape?: string) {
+    try {
+      const response = await this.client.listImages({
+        compartmentId: this.compartmentId,
+        ...(operatingSystem && { operatingSystem }),
+        ...(shape          && { shape }),
+      });
+      return response.items;
+    } catch (error) {
+      logger.error('Error listing compute images', { error });
+      throw error;
+    }
+  }
+
+  async listShapes(availabilityDomain?: string) {
+    try {
+      const response = await this.client.listShapes({
+        compartmentId: this.compartmentId,
+        ...(availabilityDomain && { availabilityDomain }),
+      });
+      return response.items;
+    } catch (error) {
+      logger.error('Error listing compute shapes', { error });
       throw error;
     }
   }
@@ -279,6 +308,31 @@ export class ObjectStorageService {
       return response.bucket;
     } catch (error) {
       logger.error(`Error creating bucket: ${name}`, { error });
+      throw error;
+    }
+  }
+}
+
+// ─── Identity ─────────────────────────────────────────────────────────────────
+
+export class IdentityService {
+  private client: OCI.identity.IdentityClient;
+  private tenancyId: string;
+
+  constructor() {
+    this.client = getIdentityClient();
+    // Availability domains are scoped to the tenancy OCID, not a compartment OCID
+    this.tenancyId = getTenancyId();
+  }
+
+  async listAvailabilityDomains() {
+    try {
+      const response = await this.client.listAvailabilityDomains({
+        compartmentId: this.tenancyId,
+      });
+      return response.items;
+    } catch (error) {
+      logger.error('Error listing availability domains', { error });
       throw error;
     }
   }
