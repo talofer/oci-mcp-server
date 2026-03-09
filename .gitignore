@@ -33,3 +33,6 @@ oci-credentials.json
 
 # Binary executables
 *.exe
+
+# Runtime data (OCI docs version cache, etc.)
+data/
