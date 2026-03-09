@@ -84,4 +84,15 @@ if (!process.env.ANTHROPIC_API_KEY) {
 
 // ─── Start the HTTP server ────────────────────────────────────────────────────
 
-require('./index');
+// eslint-disable-next-line @typescript-eslint/no-var-requires
+const { default: app }    = require('./index')    as { default: import('express').Application };
+// eslint-disable-next-line @typescript-eslint/no-var-requires
+const { serverConfig }    = require('./config')   as { serverConfig: { port: number } };
+// eslint-disable-next-line @typescript-eslint/no-var-requires
+const { default: logger } = require('./utils/logger') as { default: import('winston').Logger };
+
+app.listen(serverConfig.port, () => {
+  logger.info(`OCI MCP Server running on port ${serverConfig.port}`);
+  logger.info(`Web UI:          http://localhost:${serverConfig.port}`);
+  logger.info(`MCP endpoint:    http://localhost:${serverConfig.port}/mcp`);
+});

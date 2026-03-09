@@ -65,19 +65,15 @@ app.post('/chat', async (req, res) => {
   await handleChat(message.trim(), safeHistory, res);
 });
 
-// ─── Start server ─────────────────────────────────────────────────────────────
-
-app.listen(serverConfig.port, () => {
-  logger.info(`OCI MCP Server running on port ${serverConfig.port}`);
-  logger.info(`Web UI: http://localhost:${serverConfig.port}`);
-  logger.info(`MCP endpoint: http://localhost:${serverConfig.port}/mcp`);
-});
-
-// ─── Graceful shutdown ────────────────────────────────────────────────────────
+// ─── Graceful shutdown (registered here so all entry points get it) ───────────
 
 process.on('SIGTERM', () => { logger.info('SIGTERM received, shutting down'); process.exit(0); });
 process.on('SIGINT',  () => { logger.info('SIGINT received, shutting down');  process.exit(0); });
-process.on('uncaughtException',  (err) => { logger.error('Uncaught exception',   { err }); process.exit(1); });
+process.on('uncaughtException',  (err)    => { logger.error('Uncaught exception',   { err });    process.exit(1); });
 process.on('unhandledRejection', (reason) => { logger.error('Unhandled rejection', { reason }); process.exit(1); });
+
+// ─── Export app — entry points (cli.ts / server.ts) call app.listen() ─────────
+// Do NOT call app.listen() here; importing this module must be side-effect free
+// so that server.ts and cli.ts can each own the bind step.
 
 export default app;

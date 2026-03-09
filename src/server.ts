@@ -5,8 +5,8 @@ import { configureOCIClient } from './oci/config';
 import { serverConfig } from './config';
 import logger from './utils/logger';
 import app from './index';
-import { startClaudeBridge } from './claude/bridge';
 
+// Validate OCI config eagerly at startup (better than failing on first request)
 try {
   configureOCIClient();
 } catch (error) {
@@ -15,9 +15,8 @@ try {
 }
 
 app.listen(serverConfig.port, () => {
-  logger.info(`MCP OCI Server started on port ${serverConfig.port}`);
-  logger.info(`Environment: ${serverConfig.nodeEnv}`);
-
-  // Start the Claude Desktop bridge
-  startClaudeBridge();
+  logger.info(`OCI MCP Server running on port ${serverConfig.port}`);
+  logger.info(`Web UI:          http://localhost:${serverConfig.port}`);
+  logger.info(`MCP endpoint:    http://localhost:${serverConfig.port}/mcp`);
+  logger.info(`Environment:     ${serverConfig.nodeEnv}`);
 });
