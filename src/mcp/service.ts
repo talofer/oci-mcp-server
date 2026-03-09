@@ -1,8 +1,10 @@
 import { Server } from '@modelcontextprotocol/sdk/server/index.js';
-import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
+import { Client } from '@modelcontextprotocol/sdk/client/index.js';
+import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js';
 import {
-  CallToolRequestSchema,
   ListToolsRequestSchema,
+  CallToolRequestSchema,
+  Tool as MCPTool,
 } from '@modelcontextprotocol/sdk/types.js';
 import {
   ComputeService,
@@ -13,382 +15,351 @@ import {
 } from '../oci/services';
 import logger from '../utils/logger';
 
-export interface OciFunction {
-  name: string;
-  mcpName: string;
-  description: string;
-  parameters: Record<string, { type: string; description: string; required?: boolean; enum?: string[] }>;
-}
+// ─── Tool definitions exposed via MCP ────────────────────────────────────────
 
-export interface OciTool {
-  name: string;
-  description: string;
-  getFunctions(): OciFunction[];
-}
-
-export interface MCPServiceInstance {
-  getTools(): OciTool[];
-  process(request: { tool: string; function: string; parameters: Record<string, unknown> }): Promise<{ status: string; content?: unknown; error?: string }>;
-}
-
-export function setupMCPTools(): MCPServiceInstance {
-  // Per-service lazy initialization — only instantiate what's actually needed
-  let computeService: ComputeService | null = null;
-  let networkService: NetworkService | null = null;
-  let blockStorageService: BlockStorageService | null = null;
-  let objectStorageService: ObjectStorageService | null = null;
-  let databaseService: DatabaseService | null = null;
-
-  const compute = () => { if (!computeService) computeService = new ComputeService(); return computeService; };
-  const network = () => { if (!networkService) networkService = new NetworkService(); return networkService; };
-  const blockStorage = () => { if (!blockStorageService) blockStorageService = new BlockStorageService(); return blockStorageService; };
-  const objectStorage = () => { if (!objectStorageService) objectStorageService = new ObjectStorageService(); return objectStorageService; };
-  const database = () => { if (!databaseService) databaseService = new DatabaseService(); return databaseService; };
-
-  const tools: OciTool[] = [
-    {
-      name: 'compute',
-      description: 'Oracle Cloud Infrastructure Compute operations',
-      getFunctions: (): OciFunction[] => [
-        {
-          name: 'list_instances',
-          mcpName: 'list_compute_instances',
-          description: 'List all compute instances in the compartment',
-          parameters: {},
-        },
-        {
-          name: 'get_instance',
-          mcpName: 'get_compute_instance',
-          description: 'Get details of a specific compute instance',
-          parameters: {
-            instance_id: { type: 'string', description: 'The OCID of the compute instance', required: true },
-          },
-        },
-        {
-          name: 'create_instance',
-          mcpName: 'create_compute_instance',
-          description: 'Create a new compute instance',
-          parameters: {
-            display_name: { type: 'string', description: 'Display name for the instance', required: true },
-            shape: { type: 'string', description: 'Shape (e.g., VM.Standard.E4.Flex)', required: true },
-            image_id: { type: 'string', description: 'OCID of the image to use', required: true },
-            subnet_id: { type: 'string', description: 'OCID of the subnet', required: true },
-            availability_domain: { type: 'string', description: 'Availability domain (e.g., AD-1)', required: true },
-            ocpus: { type: 'number', description: 'Number of OCPUs (for flex shapes)' },
-            memory_in_gbs: { type: 'number', description: 'Memory in GB (for flex shapes)' },
-            assign_public_ip: { type: 'boolean', description: 'Assign a public IP address (default: true)' },
-          },
-        },
-      ],
+const MCP_TOOLS: MCPTool[] = [
+  {
+    name: 'compute__list_instances',
+    description: 'List all compute instances in the OCI compartment.',
+    inputSchema: { type: 'object', properties: {} },
+  },
+  {
+    name: 'compute__get_instance',
+    description: 'Get details of a specific compute instance by OCID.',
+    inputSchema: {
+      type: 'object',
+      properties: { instance_id: { type: 'string', description: 'Instance OCID' } },
+      required: ['instance_id'],
     },
-    {
-      name: 'network',
-      description: 'Oracle Cloud Infrastructure Networking operations',
-      getFunctions: (): OciFunction[] => [
-        {
-          name: 'list_vcns',
-          mcpName: 'list_vcns',
-          description: 'List all Virtual Cloud Networks (VCNs) in the compartment',
-          parameters: {},
-        },
-        {
-          name: 'get_vcn',
-          mcpName: 'get_vcn',
-          description: 'Get details of a specific VCN',
-          parameters: {
-            vcn_id: { type: 'string', description: 'The OCID of the VCN', required: true },
-          },
-        },
-        {
-          name: 'create_vcn',
-          mcpName: 'create_vcn',
-          description: 'Create a new Virtual Cloud Network',
-          parameters: {
-            display_name: { type: 'string', description: 'Display name for the VCN', required: true },
-            cidr_block: { type: 'string', description: 'CIDR block (e.g., 10.0.0.0/16)', required: true },
-            dns_label: { type: 'string', description: 'DNS label (optional)' },
-          },
-        },
-        {
-          name: 'list_subnets',
-          mcpName: 'list_subnets',
-          description: 'List all subnets in the compartment',
-          parameters: {
-            vcn_id: { type: 'string', description: 'Filter by VCN OCID (optional)' },
-          },
-        },
-        {
-          name: 'create_subnet',
-          mcpName: 'create_subnet',
-          description: 'Create a new subnet in a VCN',
-          parameters: {
-            display_name: { type: 'string', description: 'Display name for the subnet', required: true },
-            vcn_id: { type: 'string', description: 'OCID of the parent VCN', required: true },
-            cidr_block: { type: 'string', description: 'CIDR block (e.g., 10.0.1.0/24)', required: true },
-            availability_domain: { type: 'string', description: 'Availability domain (optional)' },
-            dns_label: { type: 'string', description: 'DNS label (optional)' },
-          },
-        },
-      ],
+  },
+  {
+    name: 'compute__create_instance',
+    description: 'Create a new compute instance. Only call after explicit user confirmation.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        display_name: { type: 'string' },
+        shape: { type: 'string' },
+        image_id: { type: 'string' },
+        subnet_id: { type: 'string' },
+        availability_domain: { type: 'string' },
+        metadata: { type: 'object' },
+        shape_config: { type: 'object' },
+      },
+      required: ['display_name', 'shape', 'image_id', 'subnet_id', 'availability_domain'],
     },
-    {
-      name: 'block_storage',
-      description: 'Oracle Cloud Infrastructure Block Storage operations',
-      getFunctions: (): OciFunction[] => [
-        {
-          name: 'list_volumes',
-          mcpName: 'list_block_volumes',
-          description: 'List all block storage volumes in the compartment',
-          parameters: {},
-        },
-        {
-          name: 'get_volume',
-          mcpName: 'get_block_volume',
-          description: 'Get details of a specific block volume',
-          parameters: {
-            volume_id: { type: 'string', description: 'The OCID of the block volume', required: true },
-          },
-        },
-        {
-          name: 'create_volume',
-          mcpName: 'create_block_volume',
-          description: 'Create a new block storage volume',
-          parameters: {
-            display_name: { type: 'string', description: 'Display name for the volume', required: true },
-            availability_domain: { type: 'string', description: 'Availability domain', required: true },
-            size_in_gbs: { type: 'number', description: 'Size in GB (optional, default 50)' },
-          },
-        },
-      ],
+  },
+  {
+    name: 'network__list_vcns',
+    description: 'List all Virtual Cloud Networks (VCNs).',
+    inputSchema: { type: 'object', properties: {} },
+  },
+  {
+    name: 'network__create_vcn',
+    description: 'Create a VCN. Only call after explicit user confirmation.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        display_name: { type: 'string' },
+        cidr_block: { type: 'string' },
+        dns_label: { type: 'string' },
+      },
+      required: ['display_name', 'cidr_block'],
     },
-    {
-      name: 'object_storage',
-      description: 'Oracle Cloud Infrastructure Object Storage operations',
-      getFunctions: (): OciFunction[] => [
-        {
-          name: 'list_buckets',
-          mcpName: 'list_object_storage_buckets',
-          description: 'List all object storage buckets in the compartment',
-          parameters: {},
-        },
-        {
-          name: 'create_bucket',
-          mcpName: 'create_object_storage_bucket',
-          description: 'Create a new object storage bucket',
-          parameters: {
-            name: { type: 'string', description: 'Name of the bucket', required: true },
-            public_access_type: {
-              type: 'string',
-              description: 'Public access type (optional, default: NoPublicAccess)',
-              enum: ['NoPublicAccess', 'ObjectRead', 'ObjectReadWithoutList'],
-            },
-            storage_tier: {
-              type: 'string',
-              description: 'Storage tier (optional, default: Standard)',
-              enum: ['Standard', 'Archive'],
-            },
-          },
-        },
-      ],
+  },
+  {
+    name: 'network__list_subnets',
+    description: 'List subnets, optionally filtered by VCN.',
+    inputSchema: {
+      type: 'object',
+      properties: { vcn_id: { type: 'string' } },
     },
-    {
-      name: 'database',
-      description: 'Oracle Cloud Infrastructure Database operations',
-      getFunctions: (): OciFunction[] => [
-        {
-          name: 'list_autonomous_databases',
-          mcpName: 'list_autonomous_databases',
-          description: 'List all Autonomous Databases in the compartment',
-          parameters: {},
-        },
-        {
-          name: 'create_autonomous_database',
-          mcpName: 'create_autonomous_database',
-          description: 'Create a new Autonomous Database',
-          parameters: {
-            display_name: { type: 'string', description: 'Display name', required: true },
-            db_name: { type: 'string', description: 'Database name (alphanumeric, max 14 chars)', required: true },
-            admin_password: { type: 'string', description: 'Admin password', required: true },
-            cpu_core_count: { type: 'number', description: 'Number of CPU cores', required: true },
-            data_storage_size_in_tbs: { type: 'number', description: 'Storage size in TB', required: true },
-            is_free_tier: { type: 'boolean', description: 'Use free tier (optional)' },
-            db_workload: {
-              type: 'string',
-              description: 'Workload type (optional)',
-              enum: ['OLTP', 'DW', 'AJD', 'APEX'],
-            },
-          },
-        },
-      ],
+  },
+  {
+    name: 'network__create_subnet',
+    description: 'Create a subnet in a VCN. Only call after explicit user confirmation.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        display_name: { type: 'string' },
+        vcn_id: { type: 'string' },
+        cidr_block: { type: 'string' },
+        availability_domain: { type: 'string' },
+        dns_label: { type: 'string' },
+      },
+      required: ['display_name', 'vcn_id', 'cidr_block'],
     },
-  ];
+  },
+  {
+    name: 'block_storage__list_volumes',
+    description: 'List all block storage volumes.',
+    inputSchema: { type: 'object', properties: {} },
+  },
+  {
+    name: 'block_storage__create_volume',
+    description: 'Create a block storage volume. Only call after explicit user confirmation.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        display_name: { type: 'string' },
+        availability_domain: { type: 'string' },
+        size_in_gbs: { type: 'number' },
+      },
+      required: ['display_name', 'availability_domain'],
+    },
+  },
+  {
+    name: 'object_storage__list_buckets',
+    description: 'List all object storage buckets.',
+    inputSchema: { type: 'object', properties: {} },
+  },
+  {
+    name: 'object_storage__create_bucket',
+    description: 'Create an object storage bucket. Only call after explicit user confirmation.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        name: { type: 'string' },
+        public_access_type: {
+          type: 'string',
+          enum: ['NoPublicAccess', 'ObjectRead', 'ObjectReadWithoutList'],
+        },
+        storage_tier: { type: 'string', enum: ['Standard', 'Archive'] },
+      },
+      required: ['name'],
+    },
+  },
+  {
+    name: 'database__list_autonomous_databases',
+    description: 'List all Autonomous Databases.',
+    inputSchema: { type: 'object', properties: {} },
+  },
+  {
+    name: 'database__create_autonomous_database',
+    description: 'Create an Autonomous Database. Only call after explicit user confirmation.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        display_name: { type: 'string' },
+        db_name: { type: 'string' },
+        admin_password: { type: 'string' },
+        cpu_core_count: { type: 'number' },
+        data_storage_size_in_tbs: { type: 'number' },
+        is_free_tier: { type: 'boolean' },
+        db_workload: { type: 'string', enum: ['OLTP', 'DW', 'AJD', 'APEX'] },
+      },
+      required: ['display_name', 'db_name', 'admin_password', 'cpu_core_count', 'data_storage_size_in_tbs'],
+    },
+  },
+];
 
+// ─── OCI Service instances (lazy-initialised) ─────────────────────────────────
+
+let _computeService: ComputeService;
+let _networkService: NetworkService;
+let _blockStorageService: BlockStorageService;
+let _objectStorageService: ObjectStorageService;
+let _databaseService: DatabaseService;
+
+function getServices() {
+  if (!_computeService) {
+    _computeService = new ComputeService();
+    _networkService = new NetworkService();
+    _blockStorageService = new BlockStorageService();
+    _objectStorageService = new ObjectStorageService();
+    _databaseService = new DatabaseService();
+  }
   return {
-    getTools: () => tools,
-    async process({ tool, function: functionName, parameters }) {
-      const toolDef = tools.find(t => t.name === tool);
-      if (!toolDef) return { status: 'error', error: `Unknown tool: ${tool}` };
-
-      const fnDef = toolDef.getFunctions().find(f => f.name === functionName);
-      if (!fnDef) return { status: 'error', error: `Unknown function: ${tool}.${functionName}` };
-
-      const missing = Object.entries(fnDef.parameters)
-        .filter(([key, p]) => p.required && parameters[key] == null)
-        .map(([key]) => key);
-      if (missing.length > 0) {
-        return { status: 'error', error: `Missing required parameters: ${missing.join(', ')}` };
-      }
-
-      try {
-        let result: unknown;
-        switch (`${tool}.${functionName}`) {
-          case 'compute.list_instances':
-            result = await compute().listInstances();
-            break;
-          case 'compute.get_instance':
-            result = await compute().getInstance(parameters.instance_id as string);
-            break;
-          case 'compute.create_instance': {
-            const shapeConfig = (parameters.ocpus || parameters.memory_in_gbs)
-              ? { ocpus: parameters.ocpus as number, memoryInGBs: parameters.memory_in_gbs as number }
-              : undefined;
-            result = await compute().createInstance(
-              parameters.display_name as string, parameters.shape as string,
-              parameters.image_id as string, parameters.subnet_id as string,
-              parameters.availability_domain as string, undefined, shapeConfig,
-              parameters.assign_public_ip !== false
-            );
-            break;
-          }
-          case 'network.list_vcns':
-            result = await network().listVcns();
-            break;
-          case 'network.get_vcn':
-            result = await network().getVcn(parameters.vcn_id as string);
-            break;
-          case 'network.create_vcn':
-            result = await network().createVcn(
-              parameters.display_name as string, parameters.cidr_block as string,
-              parameters.dns_label as string | undefined
-            );
-            break;
-          case 'network.list_subnets':
-            result = await network().listSubnets(parameters.vcn_id as string | undefined);
-            break;
-          case 'network.create_subnet':
-            result = await network().createSubnet(
-              parameters.display_name as string, parameters.vcn_id as string,
-              parameters.cidr_block as string, parameters.availability_domain as string | undefined,
-              parameters.dns_label as string | undefined
-            );
-            break;
-          case 'block_storage.list_volumes':
-            result = await blockStorage().listVolumes();
-            break;
-          case 'block_storage.get_volume':
-            result = await blockStorage().getVolume(parameters.volume_id as string);
-            break;
-          case 'block_storage.create_volume':
-            result = await blockStorage().createVolume(
-              parameters.display_name as string, parameters.availability_domain as string,
-              parameters.size_in_gbs as number | undefined
-            );
-            break;
-          case 'object_storage.list_buckets':
-            result = await objectStorage().listBuckets();
-            break;
-          case 'object_storage.create_bucket':
-            result = await objectStorage().createBucket(
-              parameters.name as string,
-              parameters.public_access_type as string | undefined,
-              parameters.storage_tier as string | undefined
-            );
-            break;
-          case 'database.list_autonomous_databases':
-            result = await database().listAutonomousDatabases();
-            break;
-          case 'database.create_autonomous_database':
-            result = await database().createAutonomousDatabase(
-              parameters.display_name as string, parameters.db_name as string,
-              parameters.admin_password as string, parameters.cpu_core_count as number,
-              parameters.data_storage_size_in_tbs as number,
-              parameters.is_free_tier as boolean | undefined,
-              parameters.db_workload as string | undefined
-            );
-            break;
-          default:
-            return { status: 'error', error: `Unhandled tool.function: ${tool}.${functionName}` };
-        }
-        return { status: 'success', content: result };
-      } catch (error) {
-        logger.error(`Error in MCP process: ${tool}.${functionName}`, { error });
-        return { status: 'error', error: (error as Error).message };
-      }
-    },
+    cs: _computeService,
+    ns: _networkService,
+    bs: _blockStorageService,
+    os: _objectStorageService,
+    ds: _databaseService,
   };
 }
 
-export async function startMCPServer() {
-  const server = new Server(
-    { name: 'oci-mcp-server', version: '0.1.0' },
-    { capabilities: { tools: {} } }
-  );
+// ─── Tool-call router ─────────────────────────────────────────────────────────
 
-  const mcpService = setupMCPTools();
+type Args = Record<string, unknown>;
 
-  // Build MCP name → { tool, fn } map from the single source of truth
-  const nameMap = new Map<string, { tool: string; fn: string }>();
-  for (const tool of mcpService.getTools()) {
-    for (const fn of tool.getFunctions()) {
-      nameMap.set(fn.mcpName, { tool: tool.name, fn: fn.name });
-    }
-  }
+async function executeOCITool(name: string, a: Args): Promise<unknown> {
+  const { cs, ns, bs, os, ds } = getServices();
 
-  server.setRequestHandler(ListToolsRequestSchema, async () => ({
-    tools: mcpService.getTools().flatMap(tool =>
-      tool.getFunctions().map(fn => {
-        const properties: Record<string, object> = {};
-        const required: string[] = [];
-        for (const [key, param] of Object.entries(fn.parameters)) {
-          const schema: Record<string, unknown> = { type: param.type, description: param.description };
-          if (param.enum) schema['enum'] = param.enum;
-          properties[key] = schema;
-          if (param.required) required.push(key);
-        }
-        return {
-          name: fn.mcpName,
-          description: fn.description,
-          inputSchema: { type: 'object' as const, properties, required },
-        };
-      })
-    ),
-  }));
+  switch (name) {
+    /* ── COMPUTE ── */
+    case 'compute__list_instances':
+      return (await cs.listInstances()).map(i => ({
+        id: i.id, displayName: i.displayName, shape: i.shape,
+        lifecycleState: i.lifecycleState, availabilityDomain: i.availabilityDomain,
+        timeCreated: i.timeCreated ? new Date(i.timeCreated).toISOString() : null,
+      }));
 
-  server.setRequestHandler(CallToolRequestSchema, async (request) => {
-    const { name, arguments: args = {} } = request.params;
-    logger.info(`Calling tool: ${name}`, { args });
-
-    const mapping = nameMap.get(name);
-    if (!mapping) {
-      return { content: [{ type: 'text', text: `Unknown tool: ${name}` }], isError: true };
+    case 'compute__get_instance': {
+      const i = await cs.getInstance(a.instance_id as string);
+      return { id: i.id, displayName: i.displayName, shape: i.shape, lifecycleState: i.lifecycleState };
     }
 
-    try {
-      const result = await mcpService.process({ tool: mapping.tool, function: mapping.fn, parameters: args });
-      if (result.status === 'error') {
-        return { content: [{ type: 'text', text: result.error ?? 'Unknown error' }], isError: true };
-      }
-      return { content: [{ type: 'text', text: JSON.stringify(result.content, null, 2) }] };
-    } catch (error) {
-      logger.error(`Tool execution error: ${name}`, { error });
+    case 'compute__create_instance': {
+      const i = await cs.createInstance(
+        a.display_name as string, a.shape as string, a.image_id as string,
+        a.subnet_id as string, a.availability_domain as string,
+        a.metadata as Record<string, string> | undefined,
+        a.shape_config as { ocpus?: number; memoryInGBs?: number } | undefined,
+      );
       return {
-        content: [{ type: 'text', text: `Error executing ${name}: ${(error as Error).message}` }],
-        isError: true,
+        id: i.id, displayName: i.displayName, shape: i.shape,
+        lifecycleState: i.lifecycleState, availabilityDomain: i.availabilityDomain,
+        timeCreated: i.timeCreated ? new Date(i.timeCreated).toISOString() : null,
       };
     }
-  });
 
-  const transport = new StdioServerTransport();
-  await server.connect(transport);
-  logger.info('OCI MCP Server started');
+    /* ── NETWORK ── */
+    case 'network__list_vcns':
+      return (await ns.listVcns()).map(v => ({
+        id: v.id, displayName: v.displayName, cidrBlock: v.cidrBlock,
+        lifecycleState: v.lifecycleState, dnsLabel: v.dnsLabel,
+        timeCreated: v.timeCreated ? new Date(v.timeCreated).toISOString() : null,
+      }));
+
+    case 'network__create_vcn': {
+      const v = await ns.createVcn(
+        a.display_name as string, a.cidr_block as string, a.dns_label as string | undefined,
+      );
+      return { id: v.id, displayName: v.displayName, cidrBlock: v.cidrBlock, lifecycleState: v.lifecycleState };
+    }
+
+    case 'network__list_subnets':
+      return (await ns.listSubnets(a.vcn_id as string | undefined)).map(s => ({
+        id: s.id, displayName: s.displayName, cidrBlock: s.cidrBlock,
+        vcnId: s.vcnId, availabilityDomain: s.availabilityDomain, lifecycleState: s.lifecycleState,
+      }));
+
+    case 'network__create_subnet': {
+      const s = await ns.createSubnet(
+        a.display_name as string, a.vcn_id as string, a.cidr_block as string,
+        a.availability_domain as string | undefined, a.dns_label as string | undefined,
+      );
+      return { id: s.id, displayName: s.displayName, cidrBlock: s.cidrBlock, vcnId: s.vcnId, lifecycleState: s.lifecycleState };
+    }
+
+    /* ── BLOCK STORAGE ── */
+    case 'block_storage__list_volumes':
+      return (await bs.listVolumes()).map(v => ({
+        id: v.id, displayName: v.displayName, sizeInGBs: v.sizeInGBs,
+        lifecycleState: v.lifecycleState, availabilityDomain: v.availabilityDomain,
+      }));
+
+    case 'block_storage__create_volume': {
+      const v = await bs.createVolume(
+        a.display_name as string, a.availability_domain as string, a.size_in_gbs as number | undefined,
+      );
+      return { id: v.id, displayName: v.displayName, sizeInGBs: v.sizeInGBs, lifecycleState: v.lifecycleState };
+    }
+
+    /* ── OBJECT STORAGE ── */
+    case 'object_storage__list_buckets':
+      return (await os.listBuckets()).map(b => ({
+        name: b.name, namespace: b.namespace,
+        timeCreated: b.timeCreated ? new Date(b.timeCreated).toISOString() : null,
+      }));
+
+    case 'object_storage__create_bucket': {
+      const b = await os.createBucket(
+        a.name as string,
+        (a.public_access_type as string | undefined) ?? 'NoPublicAccess',
+        (a.storage_tier as string | undefined) ?? 'Standard',
+      );
+      return { name: b.name, namespace: b.namespace, publicAccessType: b.publicAccessType, storageTier: b.storageTier };
+    }
+
+    /* ── DATABASE ── */
+    case 'database__list_autonomous_databases':
+      return (await ds.listAutonomousDatabases()).map(d => ({
+        id: d.id, displayName: d.displayName, dbName: d.dbName,
+        lifecycleState: d.lifecycleState, dbWorkload: d.dbWorkload, isFreeTier: d.isFreeTier,
+      }));
+
+    case 'database__create_autonomous_database': {
+      const d = await ds.createAutonomousDatabase(
+        a.display_name as string, a.db_name as string, a.admin_password as string,
+        a.cpu_core_count as number, a.data_storage_size_in_tbs as number,
+        (a.is_free_tier as boolean | undefined) ?? false,
+        (a.db_workload as string | undefined) ?? 'OLTP',
+      );
+      return { id: d.id, displayName: d.displayName, dbName: d.dbName, lifecycleState: d.lifecycleState, isFreeTier: d.isFreeTier };
+    }
+
+    default:
+      throw new Error(`Unknown OCI tool: ${name}`);
+  }
 }
+
+// ─── MCP Server ───────────────────────────────────────────────────────────────
+
+export const mcpServer = new Server(
+  { name: 'oci-mcp-server', version: '0.1.0' },
+  { capabilities: { tools: {} } },
+);
+
+mcpServer.setRequestHandler(ListToolsRequestSchema, async () => ({ tools: MCP_TOOLS }));
+
+mcpServer.setRequestHandler(CallToolRequestSchema, async (request) => {
+  const { name, arguments: args = {} } = request.params;
+  logger.info(`MCP tool call: ${name}`, { args });
+  try {
+    const result = await executeOCITool(name, args as Args);
+    return { content: [{ type: 'text' as const, text: JSON.stringify(result, null, 2) }] };
+  } catch (error) {
+    logger.error(`MCP tool error: ${name}`, { error });
+    return {
+      content: [{ type: 'text' as const, text: `Error: ${(error as Error).message}` }],
+      isError: true,
+    };
+  }
+});
+
+// ─── In-process MCP Client ────────────────────────────────────────────────────
+// Connects to the MCP server above via an InMemoryTransport pair, so the chat
+// handler can call OCI tools through the full MCP protocol without HTTP overhead.
+
+let _mcpClient: Client | null = null;
+
+export async function getMCPClient(): Promise<Client> {
+  if (_mcpClient) return _mcpClient;
+
+  const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+  _mcpClient = new Client({ name: 'oci-chat-client', version: '0.1.0' });
+
+  await mcpServer.connect(serverTransport);
+  await _mcpClient.connect(clientTransport);
+
+  logger.info('In-process MCP client connected via InMemoryTransport');
+  return _mcpClient;
+}
+
+// ─── Public helper ────────────────────────────────────────────────────────────
+
+export async function callOCIToolViaMCP(toolName: string, args: Args): Promise<unknown> {
+  const client = await getMCPClient();
+  const result = await client.callTool({ name: toolName, arguments: args });
+
+  // content is typed with an index signature that widens to unknown — cast explicitly
+  const content = result.content as Array<{ type: string; text?: string }>;
+
+  if (result.isError) {
+    const errText = content
+      .filter(c => c.type === 'text' && c.text)
+      .map(c => c.text as string)
+      .join('\n');
+    throw new Error(errText || 'MCP tool call failed');
+  }
+
+  const text = content
+    .filter(c => c.type === 'text' && c.text)
+    .map(c => c.text as string)
+    .join('\n');
+
+  try { return JSON.parse(text); } catch { return text; }
+}
+
+export { MCP_TOOLS };

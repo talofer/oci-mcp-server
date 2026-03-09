@@ -1,187 +1,83 @@
 import express from 'express';
 import cors from 'cors';
 import path from 'path';
-import Anthropic from '@anthropic-ai/sdk';
-import { setupMCPTools, MCPServiceInstance } from './mcp/service';
 import { serverConfig } from './config';
 import logger from './utils/logger';
+import { mcpServer } from './mcp/service';
+import { handleChat } from './chat/handler';
+import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js';
+
+// ─── Express app ──────────────────────────────────────────────────────────────
 
 const app = express();
-
 app.use(cors());
 app.use(express.json());
+
+// ─── Static web UI ────────────────────────────────────────────────────────────
+
 app.use(express.static(path.join(__dirname, '../public')));
 
-const MODEL = 'claude-sonnet-4-6';
+// ─── Service info ─────────────────────────────────────────────────────────────
 
-// Lazy MCP service instantiation — created on first request after configureOCIClient() has run
-let configuredMCPService: MCPServiceInstance | null = null;
-function getMCPService(): MCPServiceInstance {
-  if (!configuredMCPService) {
-    configuredMCPService = setupMCPTools();
-  }
-  return configuredMCPService;
-}
-
-// Lazy Anthropic client
-let anthropicClient: Anthropic | null = null;
-function getAnthropicClient(): Anthropic {
-  if (!anthropicClient) {
-    anthropicClient = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
-  }
-  return anthropicClient;
-}
-
-// Cached tool definitions — derived from static data, no need to rebuild per request
-let _anthropicTools: Anthropic.Tool[] | null = null;
-let _toolMap: Map<string, { tool: string; function: string }> | null = null;
-
-function getAnthropicTools(): Anthropic.Tool[] {
-  if (_anthropicTools) return _anthropicTools;
-  const result: Anthropic.Tool[] = [];
-  for (const tool of getMCPService().getTools()) {
-    for (const fn of tool.getFunctions()) {
-      const properties: Record<string, { type: string; description: string }> = {};
-      const required: string[] = [];
-      for (const [paramName, paramDef] of Object.entries(fn.parameters)) {
-        properties[paramName] = { type: paramDef.type, description: paramDef.description };
-        if (paramDef.required) required.push(paramName);
-      }
-      result.push({
-        name: fn.mcpName,
-        description: fn.description,
-        input_schema: { type: 'object', properties, required },
-      });
-    }
-  }
-  _anthropicTools = result;
-  return _anthropicTools;
-}
-
-function getToolMap(): Map<string, { tool: string; function: string }> {
-  if (_toolMap) return _toolMap;
-  const map = new Map<string, { tool: string; function: string }>();
-  for (const tool of getMCPService().getTools()) {
-    for (const fn of tool.getFunctions()) {
-      map.set(fn.mcpName, { tool: tool.name, function: fn.name });
-    }
-  }
-  _toolMap = map;
-  return _toolMap;
-}
-
-const SYSTEM_PROMPT =
-  'You are an assistant that helps manage Oracle Cloud Infrastructure (OCI) resources. ' +
-  'Use the available tools to fulfill user requests and respond in plain English with the results.';
-
-// POST /chat — main chat endpoint used by the browser UI
-app.post('/chat', async (req, res) => {
-  try {
-    const { message, history = [] } = req.body as {
-      message: string;
-      history: Anthropic.MessageParam[];
-    };
-
-    if (!process.env.ANTHROPIC_API_KEY) {
-      return res.status(500).json({ error: 'ANTHROPIC_API_KEY is not set in .env' });
-    }
-
-    const anthropic = getAnthropicClient();
-    const tools = getAnthropicTools();
-    const toolMap = getToolMap();
-
-    const messages: Anthropic.MessageParam[] = [
-      ...history,
-      { role: 'user', content: message },
-    ];
-
-    let response = await anthropic.messages.create({
-      model: MODEL,
-      max_tokens: 4096,
-      system: SYSTEM_PROMPT,
-      tools,
-      messages,
-    });
-
-    // Tool-use loop: execute tools and feed results back until Claude stops
-    while (response.stop_reason === 'tool_use') {
-      messages.push({ role: 'assistant', content: response.content });
-
-      const toolResults: Anthropic.ToolResultBlockParam[] = [];
-      for (const block of response.content) {
-        if (block.type === 'tool_use') {
-          const ociTool = toolMap.get(block.name);
-          let resultContent: string;
-          if (ociTool) {
-            const result = await getMCPService().process({
-              tool: ociTool.tool,
-              function: ociTool.function,
-              parameters: block.input as Record<string, unknown>,
-            });
-            resultContent = JSON.stringify(result.content ?? result.error);
-          } else {
-            resultContent = `Unknown tool: ${block.name}`;
-          }
-          toolResults.push({ type: 'tool_result', tool_use_id: block.id, content: resultContent });
-        }
-      }
-
-      messages.push({ role: 'user', content: toolResults });
-
-      response = await anthropic.messages.create({
-        model: MODEL,
-        max_tokens: 4096,
-        system: SYSTEM_PROMPT,
-        tools,
-        messages,
-      });
-    }
-
-    // Push final assistant message so the client can replay the full history next time
-    messages.push({ role: 'assistant', content: response.content });
-
-    const reply = response.content
-      .filter((b): b is Anthropic.TextBlock => b.type === 'text')
-      .map(b => b.text)
-      .join('\n');
-
-    return res.json({ reply, history: messages });
-  } catch (error) {
-    logger.error('Error processing /chat request', { error });
-    return res.status(500).json({ error: (error as Error).message });
-  }
+app.get('/api', (_req, res) => {
+  res.json({
+    name: 'MCP Oracle Cloud Infrastructure Server',
+    version: '0.1.0',
+    description: 'Natural language OCI management via Claude + MCP',
+    endpoints: {
+      'GET /':        'OCI Assistant web UI',
+      'GET /api':     'Service info',
+      'POST /mcp':    'MCP Streamable HTTP endpoint (for MCP clients)',
+      'POST /chat':   'Natural language chat with OCI (SSE stream)',
+    },
+  });
 });
 
-// Legacy MCP protocol endpoint
+// ─── MCP Streamable HTTP endpoint ─────────────────────────────────────────────
+// Allows external MCP clients (e.g. Claude Desktop, other agents) to connect.
+
 app.post('/mcp', async (req, res) => {
   try {
-    const { tool, function: fn, parameters } = req.body as {
-      tool?: string;
-      function?: string;
-      parameters?: Record<string, unknown>;
-    };
-
-    if (!tool || !fn) {
-      return res.status(400).json({ status: 'error', error: 'Missing required fields: tool, function' });
-    }
-
-    logger.info('Received MCP request', { tool, function: fn });
-    const response = await getMCPService().process({ tool, function: fn, parameters: parameters ?? {} });
-    logger.info('MCP response processed', { response });
-    return res.json(response);
+    const transport = new StreamableHTTPServerTransport({ sessionIdGenerator: undefined });
+    await mcpServer.connect(transport);
+    await transport.handleRequest(req, res, req.body);
   } catch (error) {
-    logger.error('Error processing MCP request', { error });
-    return res.status(500).json({
-      status: 'error',
-      error: `Internal server error: ${(error as Error).message}`,
-    });
+    logger.error('MCP HTTP request error', { error });
+    if (!res.headersSent) {
+      res.status(500).json({ error: 'Internal MCP server error' });
+    }
   }
 });
 
-process.on('SIGTERM', () => { logger.info('SIGTERM signal received, shutting down gracefully'); process.exit(0); });
-process.on('SIGINT', () => { logger.info('SIGINT signal received, shutting down gracefully'); process.exit(0); });
-process.on('uncaughtException', (error) => { logger.error('Uncaught exception', { error }); process.exit(1); });
+// ─── Natural language chat endpoint (SSE) ─────────────────────────────────────
+
+app.post('/chat', async (req, res) => {
+  const { message, history } = req.body as { message?: unknown; history?: unknown };
+
+  if (!message || typeof message !== 'string' || message.trim().length === 0) {
+    res.status(400).json({ error: 'message must be a non-empty string' });
+    return;
+  }
+
+  const safeHistory = Array.isArray(history) ? history : [];
+
+  logger.info('Chat request', { preview: message.slice(0, 80) });
+  await handleChat(message.trim(), safeHistory, res);
+});
+
+// ─── Start server ─────────────────────────────────────────────────────────────
+
+app.listen(serverConfig.port, () => {
+  logger.info(`OCI MCP Server running on port ${serverConfig.port}`);
+  logger.info(`Web UI: http://localhost:${serverConfig.port}`);
+  logger.info(`MCP endpoint: http://localhost:${serverConfig.port}/mcp`);
+});
+
+// ─── Graceful shutdown ────────────────────────────────────────────────────────
+
+process.on('SIGTERM', () => { logger.info('SIGTERM received, shutting down'); process.exit(0); });
+process.on('SIGINT',  () => { logger.info('SIGINT received, shutting down');  process.exit(0); });
+process.on('uncaughtException',  (err) => { logger.error('Uncaught exception',   { err }); process.exit(1); });
 process.on('unhandledRejection', (reason) => { logger.error('Unhandled rejection', { reason }); process.exit(1); });
 
-export { serverConfig };
 export default app;

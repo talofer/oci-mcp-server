@@ -4,424 +4,567 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>OCI Assistant</title>
-  <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
   <style>
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
-    body {
-      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-      background: #0f1117;
-      color: #e2e8f0;
-      height: 100vh;
-      display: flex;
-      flex-direction: column;
+    :root {
+      --bg: #0f1117;
+      --surface: #1a1d27;
+      --surface2: #242736;
+      --border: #2d3148;
+      --text: #e2e8f0;
+      --text-muted: #8892a4;
+      --accent: #f80000;          /* OCI red */
+      --accent-soft: #3a1a1a;
+      --tool-bg: #1a2235;
+      --tool-border: #2a4060;
+      --tool-ok: #1a3a2a;
+      --tool-ok-border: #2a6040;
+      --tool-err: #3a1a1a;
+      --tool-err-border: #6a2020;
+      --user-bg: #1e2235;
     }
+
+    html, body { height: 100%; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: var(--bg); color: var(--text); }
+
+    /* ── Layout ── */
+    .layout { display: flex; flex-direction: column; height: 100vh; }
 
     header {
-      background: #1a1d27;
-      border-bottom: 1px solid #2d3148;
-      padding: 16px 24px;
+      background: var(--surface);
+      border-bottom: 1px solid var(--border);
+      padding: 14px 20px;
       display: flex;
       align-items: center;
       gap: 12px;
       flex-shrink: 0;
     }
-
-    header .logo {
-      width: 32px;
-      height: 32px;
-      background: linear-gradient(135deg, #c74b2a 0%, #f05a28 100%);
-      border-radius: 8px;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      font-weight: 700;
-      font-size: 14px;
-      color: white;
-    }
-
-    header h1 {
-      font-size: 18px;
-      font-weight: 600;
-      color: #f1f5f9;
-    }
-
-    header .subtitle {
-      font-size: 13px;
-      color: #64748b;
+    header .logo { font-size: 22px; }
+    header h1 { font-size: 17px; font-weight: 600; color: var(--text); }
+    header .badge {
       margin-left: auto;
+      background: var(--accent-soft);
+      color: var(--accent);
+      border: 1px solid #5a1a1a;
+      font-size: 11px;
+      padding: 3px 8px;
+      border-radius: 20px;
+      font-weight: 600;
     }
+    header .btn-clear {
+      background: none;
+      border: 1px solid var(--border);
+      color: var(--text-muted);
+      padding: 5px 12px;
+      border-radius: 6px;
+      font-size: 12px;
+      cursor: pointer;
+      transition: all .15s;
+    }
+    header .btn-clear:hover { border-color: var(--accent); color: var(--accent); }
 
-    #chat-container {
+    /* ── Messages ── */
+    #messages {
       flex: 1;
       overflow-y: auto;
-      padding: 24px;
+      padding: 24px 0;
       display: flex;
       flex-direction: column;
-      gap: 16px;
-      scroll-behavior: smooth;
+      gap: 20px;
     }
 
-    #chat-container::-webkit-scrollbar { width: 6px; }
-    #chat-container::-webkit-scrollbar-track { background: transparent; }
-    #chat-container::-webkit-scrollbar-thumb { background: #2d3148; border-radius: 3px; }
+    .msg { max-width: 780px; width: 100%; margin: 0 auto; padding: 0 20px; }
 
-    .message {
-      display: flex;
-      gap: 12px;
-      max-width: 820px;
-      width: 100%;
-      align-self: flex-start;
-    }
-
-    .message.user {
-      align-self: flex-end;
-      flex-direction: row-reverse;
-    }
-
-    .avatar {
-      width: 32px;
-      height: 32px;
-      border-radius: 50%;
-      flex-shrink: 0;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      font-size: 13px;
-      font-weight: 600;
-    }
-
-    .avatar.assistant {
-      background: linear-gradient(135deg, #c74b2a 0%, #f05a28 100%);
-      color: white;
-    }
-
-    .avatar.user {
-      background: #3b4261;
-      color: #94a3b8;
-    }
-
-    .bubble {
-      padding: 12px 16px;
+    .msg-user .bubble {
+      background: var(--user-bg);
+      border: 1px solid var(--border);
       border-radius: 12px;
+      padding: 12px 16px;
       line-height: 1.6;
-      font-size: 14px;
-      max-width: calc(100% - 44px);
+      white-space: pre-wrap;
     }
+    .msg-user .label { font-size: 11px; color: var(--text-muted); margin-bottom: 6px; text-transform: uppercase; letter-spacing: .5px; }
 
-    .message.user .bubble {
-      background: #1e3a5f;
-      color: #e2e8f0;
-      border-radius: 12px 4px 12px 12px;
+    .msg-assistant .label { font-size: 11px; color: var(--text-muted); margin-bottom: 6px; text-transform: uppercase; letter-spacing: .5px; display: flex; align-items: center; gap: 6px; }
+    .msg-assistant .label .thinking { color: #7c8aff; animation: pulse 1.2s infinite; }
+    @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:.4} }
+
+    .msg-assistant .text {
+      line-height: 1.7;
+      white-space: pre-wrap;
+      word-break: break-word;
     }
-
-    .message.assistant .bubble {
-      background: #1a1d27;
-      border: 1px solid #2d3148;
-      color: #e2e8f0;
-      border-radius: 4px 12px 12px 12px;
+    .msg-assistant .text code {
+      background: var(--surface2);
+      border: 1px solid var(--border);
+      border-radius: 4px;
+      padding: 1px 5px;
+      font-family: 'Menlo', 'Consolas', monospace;
+      font-size: 13px;
     }
-
-    .bubble p { margin-bottom: 8px; }
-    .bubble p:last-child { margin-bottom: 0; }
-    .bubble pre {
-      background: #0f1117;
-      border: 1px solid #2d3148;
-      border-radius: 6px;
-      padding: 12px;
+    .msg-assistant .text pre {
+      background: var(--surface2);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 12px 14px;
       overflow-x: auto;
       margin: 8px 0;
-      font-size: 13px;
+      font-family: 'Menlo', 'Consolas', monospace;
+      font-size: 12px;
+      line-height: 1.5;
     }
-    .bubble code {
-      font-family: 'Cascadia Code', 'Fira Code', 'Consolas', monospace;
-      font-size: 13px;
-    }
-    .bubble :not(pre) > code {
-      background: #0f1117;
-      border: 1px solid #2d3148;
-      padding: 1px 5px;
-      border-radius: 4px;
-    }
-    .bubble ul, .bubble ol { padding-left: 20px; margin: 6px 0; }
-    .bubble li { margin: 3px 0; }
-    .bubble strong { color: #f1f5f9; }
-    .bubble table { border-collapse: collapse; width: 100%; margin: 8px 0; font-size: 13px; }
-    .bubble th, .bubble td { border: 1px solid #2d3148; padding: 6px 10px; text-align: left; }
-    .bubble th { background: #0f1117; color: #94a3b8; }
 
-    .typing-indicator {
+    /* ── Tool call cards ── */
+    .tool-call {
+      margin: 8px 0;
+      border-radius: 8px;
+      overflow: hidden;
+      border: 1px solid var(--tool-border);
+      background: var(--tool-bg);
+    }
+    .tool-call.done { border-color: var(--tool-ok-border); background: var(--tool-ok); }
+    .tool-call.error { border-color: var(--tool-err-border); background: var(--tool-err); }
+
+    .tool-header {
       display: flex;
       align-items: center;
-      gap: 4px;
-      padding: 14px 16px;
+      gap: 8px;
+      padding: 8px 12px;
+      font-size: 12px;
+      font-weight: 600;
+      font-family: 'Menlo', 'Consolas', monospace;
     }
+    .tool-header .icon { font-size: 14px; }
+    .tool-header .name { color: #7ec8f8; }
+    .tool-header .status { margin-left: auto; color: var(--text-muted); font-weight: 400; }
+    .tool-call.done .tool-header .status { color: #4ade80; }
+    .tool-call.error .tool-header .status { color: #f87171; }
 
-    .typing-indicator span {
-      width: 6px;
-      height: 6px;
-      background: #64748b;
-      border-radius: 50%;
-      animation: bounce 1.2s infinite;
+    .tool-body {
+      padding: 8px 12px;
+      font-size: 11px;
+      font-family: 'Menlo', 'Consolas', monospace;
+      color: var(--text-muted);
+      border-top: 1px solid var(--tool-border);
+      max-height: 200px;
+      overflow-y: auto;
+      white-space: pre-wrap;
+      word-break: break-all;
+      display: none;
     }
+    .tool-call.expanded .tool-body { display: block; }
+    .tool-call.done .tool-body { border-color: var(--tool-ok-border); }
+    .tool-call.error .tool-body { border-color: var(--tool-err-border); }
 
-    .typing-indicator span:nth-child(2) { animation-delay: 0.2s; }
-    .typing-indicator span:nth-child(3) { animation-delay: 0.4s; }
-
-    @keyframes bounce {
-      0%, 60%, 100% { transform: translateY(0); opacity: 0.5; }
-      30% { transform: translateY(-6px); opacity: 1; }
+    .tool-toggle {
+      background: none;
+      border: none;
+      color: var(--text-muted);
+      font-size: 11px;
+      cursor: pointer;
+      padding: 4px 12px 8px;
+      text-align: left;
     }
+    .tool-toggle:hover { color: var(--text); }
 
-    .empty-state {
-      flex: 1;
-      display: flex;
-      flex-direction: column;
-      align-items: center;
-      justify-content: center;
-      gap: 12px;
-      color: #475569;
-      pointer-events: none;
-    }
-
-    .empty-state .icon {
-      width: 56px;
-      height: 56px;
-      background: #1a1d27;
-      border: 1px solid #2d3148;
-      border-radius: 16px;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      font-size: 24px;
-    }
-
-    .empty-state p { font-size: 14px; }
-
-    #input-area {
-      background: #1a1d27;
-      border-top: 1px solid #2d3148;
-      padding: 16px 24px;
+    /* ── Input ── */
+    .input-bar {
+      border-top: 1px solid var(--border);
+      background: var(--surface);
+      padding: 16px 20px;
       flex-shrink: 0;
     }
-
-    #input-wrapper {
-      max-width: 820px;
+    .input-wrap {
+      max-width: 780px;
       margin: 0 auto;
       display: flex;
       gap: 10px;
       align-items: flex-end;
-      background: #0f1117;
-      border: 1px solid #2d3148;
-      border-radius: 12px;
-      padding: 10px 14px;
-      transition: border-color 0.15s;
     }
-
-    #input-wrapper:focus-within {
-      border-color: #f05a28;
-    }
-
-    #message-input {
+    textarea {
       flex: 1;
-      background: transparent;
-      border: none;
-      outline: none;
-      color: #e2e8f0;
+      background: var(--surface2);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      color: var(--text);
       font-size: 14px;
       line-height: 1.5;
+      padding: 10px 14px;
       resize: none;
-      max-height: 160px;
-      min-height: 24px;
+      min-height: 44px;
+      max-height: 180px;
       font-family: inherit;
+      outline: none;
+      transition: border-color .15s;
     }
+    textarea:focus { border-color: #4a5590; }
+    textarea::placeholder { color: var(--text-muted); }
 
-    #message-input::placeholder { color: #475569; }
-
-    #send-btn {
-      background: #f05a28;
+    .btn-send {
+      background: var(--accent);
       border: none;
-      border-radius: 8px;
-      width: 34px;
-      height: 34px;
+      color: #fff;
+      width: 44px;
+      height: 44px;
+      border-radius: 10px;
+      cursor: pointer;
+      font-size: 18px;
+      flex-shrink: 0;
       display: flex;
       align-items: center;
       justify-content: center;
-      cursor: pointer;
-      flex-shrink: 0;
-      transition: background 0.15s, opacity 0.15s;
-      color: white;
+      transition: opacity .15s;
     }
+    .btn-send:hover:not(:disabled) { opacity: .85; }
+    .btn-send:disabled { opacity: .4; cursor: not-allowed; }
 
-    #send-btn:hover { background: #d94d20; }
-    #send-btn:disabled { opacity: 0.4; cursor: not-allowed; }
-
-    #send-btn svg { width: 16px; height: 16px; }
-
-    .hint {
+    /* ── Welcome ── */
+    .welcome {
+      max-width: 580px;
+      margin: 60px auto;
+      padding: 0 20px;
       text-align: center;
-      font-size: 11px;
-      color: #334155;
-      margin-top: 8px;
     }
+    .welcome .icon { font-size: 48px; margin-bottom: 16px; }
+    .welcome h2 { font-size: 22px; font-weight: 600; margin-bottom: 8px; }
+    .welcome p { color: var(--text-muted); line-height: 1.6; margin-bottom: 24px; }
+    .suggestions { display: flex; flex-wrap: wrap; gap: 8px; justify-content: center; }
+    .suggestion {
+      background: var(--surface2);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 8px 14px;
+      font-size: 13px;
+      cursor: pointer;
+      color: var(--text-muted);
+      transition: all .15s;
+      text-align: left;
+    }
+    .suggestion:hover { border-color: #4a5590; color: var(--text); }
 
-    .error-bubble {
-      background: #2d1515 !important;
-      border-color: #7f1d1d !important;
-      color: #fca5a5 !important;
+    /* ── Error toast ── */
+    .toast {
+      position: fixed;
+      bottom: 80px;
+      left: 50%;
+      transform: translateX(-50%);
+      background: #3a1a1a;
+      border: 1px solid var(--accent);
+      color: #f87171;
+      padding: 10px 18px;
+      border-radius: 8px;
+      font-size: 13px;
+      max-width: 500px;
+      text-align: center;
+      z-index: 100;
+      animation: fadeIn .2s;
     }
+    @keyframes fadeIn { from{opacity:0;transform:translateX(-50%) translateY(8px)} to{opacity:1;transform:translateX(-50%)} }
+
+    /* ── Spinner ── */
+    .spinner {
+      width: 14px; height: 14px;
+      border: 2px solid var(--border);
+      border-top-color: #7c8aff;
+      border-radius: 50%;
+      animation: spin .8s linear infinite;
+      display: inline-block;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    /* ── Scrollbar ── */
+    ::-webkit-scrollbar { width: 6px; }
+    ::-webkit-scrollbar-track { background: transparent; }
+    ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
   </style>
 </head>
 <body>
+<div class="layout">
+  <header>
+    <div class="logo">🔶</div>
+    <h1>OCI Assistant</h1>
+    <div class="badge">via Claude + MCP</div>
+    <button class="btn-clear" onclick="clearChat()">Clear</button>
+  </header>
 
-<header>
-  <div class="logo">OCI</div>
-  <h1>OCI Assistant</h1>
-  <span class="subtitle">Powered by Claude</span>
-</header>
-
-<div id="chat-container">
-  <div class="empty-state" id="empty-state">
-    <div class="icon">☁️</div>
-    <p>Ask me anything about your OCI tenancy</p>
-    <p style="font-size:12px">e.g. "List my compute instances" · "Show all VCNs" · "What buckets do I have?"</p>
+  <div id="messages">
+    <div class="welcome" id="welcome">
+      <div class="icon">☁️</div>
+      <h2>Manage Oracle Cloud with natural language</h2>
+      <p>Ask me to list, inspect, or create resources in your OCI tenancy.<br>
+         I follow OCI best practices and always confirm before creating anything.</p>
+      <div class="suggestions">
+        <div class="suggestion" onclick="send(this.textContent)">List all my compute instances</div>
+        <div class="suggestion" onclick="send(this.textContent)">Show me my VCNs and their CIDRs</div>
+        <div class="suggestion" onclick="send(this.textContent)">Create a dev VCN with best-practice settings</div>
+        <div class="suggestion" onclick="send(this.textContent)">List all object storage buckets</div>
+        <div class="suggestion" onclick="send(this.textContent)">What autonomous databases do I have?</div>
+        <div class="suggestion" onclick="send(this.textContent)">Help me plan a new VCN and subnet layout</div>
+      </div>
+    </div>
   </div>
-</div>
 
-<div id="input-area">
-  <div id="input-wrapper">
-    <textarea id="message-input" placeholder="Ask about your OCI resources…" rows="1"></textarea>
-    <button id="send-btn" title="Send (Enter)">
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
-        <line x1="22" y1="2" x2="11" y2="13"></line>
-        <polygon points="22 2 15 22 11 13 2 9 22 2"></polygon>
-      </svg>
-    </button>
+  <div class="input-bar">
+    <div class="input-wrap">
+      <textarea
+        id="input"
+        placeholder="Ask about your OCI resources…"
+        rows="1"
+        onkeydown="onKey(event)"
+        oninput="autoResize(this)"
+      ></textarea>
+      <button class="btn-send" id="send-btn" onclick="sendFromInput()" title="Send">
+        &#9654;
+      </button>
+    </div>
   </div>
-  <p class="hint">Enter to send · Shift+Enter for newline</p>
 </div>
 
 <script>
-  const chatContainer = document.getElementById('chat-container');
-  const emptyState = document.getElementById('empty-state');
-  const input = document.getElementById('message-input');
-  const sendBtn = document.getElementById('send-btn');
+// ── State ─────────────────────────────────────────────────────────────────────
+let history = [];
+let streaming = false;
 
-  // Full conversation history (including tool_use / tool_result blocks for context)
-  let history = [];
-  let isLoading = false;
+// ── Auto-resize textarea ──────────────────────────────────────────────────────
+function autoResize(el) {
+  el.style.height = 'auto';
+  el.style.height = Math.min(el.scrollHeight, 180) + 'px';
+}
 
-  // Configure marked
-  marked.setOptions({ breaks: true, gfm: true });
+// ── Keyboard handler ──────────────────────────────────────────────────────────
+function onKey(e) {
+  if (e.key === 'Enter' && !e.shiftKey) {
+    e.preventDefault();
+    sendFromInput();
+  }
+}
 
-  // Auto-resize textarea
-  input.addEventListener('input', () => {
-    input.style.height = 'auto';
-    input.style.height = Math.min(input.scrollHeight, 160) + 'px';
-  });
+// ── Send message ──────────────────────────────────────────────────────────────
+function sendFromInput() {
+  const inp = document.getElementById('input');
+  const text = inp.value.trim();
+  if (!text || streaming) return;
+  inp.value = '';
+  inp.style.height = 'auto';
+  send(text);
+}
 
-  // Enter to send, Shift+Enter for newline
-  input.addEventListener('keydown', (e) => {
-    if (e.key === 'Enter' && !e.shiftKey) {
-      e.preventDefault();
-      send();
+async function send(text) {
+  if (streaming) return;
+  streaming = true;
+  document.getElementById('send-btn').disabled = true;
+
+  // Hide welcome screen
+  const welcome = document.getElementById('welcome');
+  if (welcome) welcome.remove();
+
+  // Append user message
+  appendMessage('user', text);
+
+  // Append placeholder assistant message
+  const assistantEl = appendMessage('assistant', '');
+  const textEl = assistantEl.querySelector('.text');
+  const labelEl = assistantEl.querySelector('.label');
+  labelEl.innerHTML = 'OCI Assistant <span class="thinking"><span class="spinner"></span></span>';
+
+  let accumulated = '';
+
+  try {
+    const resp = await fetch('/chat', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ message: text, history }),
+    });
+
+    if (!resp.ok) {
+      throw new Error(`Server error: ${resp.status}`);
     }
-  });
 
-  sendBtn.addEventListener('click', send);
+    const reader = resp.body.getReader();
+    const decoder = new TextDecoder();
+    let buf = '';
 
-  function appendMessage(role, content, isError = false) {
-    emptyState.style.display = 'none';
+    while (true) {
+      const { value, done } = await reader.read();
+      if (done) break;
 
-    const msg = document.createElement('div');
-    msg.className = `message ${role}`;
+      buf += decoder.decode(value, { stream: true });
 
-    const avatar = document.createElement('div');
-    avatar.className = `avatar ${role}`;
-    avatar.textContent = role === 'user' ? 'You' : 'AI';
+      // Parse SSE events
+      const events = buf.split('\n\n');
+      buf = events.pop() || '';
 
-    const bubble = document.createElement('div');
-    bubble.className = 'bubble' + (isError ? ' error-bubble' : '');
+      for (const raw of events) {
+        const lines = raw.split('\n');
+        let eventType = '', data = '';
+        for (const line of lines) {
+          if (line.startsWith('event: ')) eventType = line.slice(7).trim();
+          if (line.startsWith('data: '))  data = line.slice(6).trim();
+        }
+        if (!eventType || !data) continue;
 
-    if (role === 'assistant' && !isError) {
-      bubble.innerHTML = marked.parse(content);
-    } else {
-      bubble.textContent = content;
-    }
-
-    msg.appendChild(avatar);
-    msg.appendChild(bubble);
-    chatContainer.appendChild(msg);
-    chatContainer.scrollTop = chatContainer.scrollHeight;
-    return msg;
-  }
-
-  function showTyping() {
-    const msg = document.createElement('div');
-    msg.className = 'message assistant';
-    msg.id = 'typing-indicator';
-
-    const avatar = document.createElement('div');
-    avatar.className = 'avatar assistant';
-    avatar.textContent = 'AI';
-
-    const bubble = document.createElement('div');
-    bubble.className = 'bubble';
-    bubble.innerHTML = '<div class="typing-indicator"><span></span><span></span><span></span></div>';
-
-    msg.appendChild(avatar);
-    msg.appendChild(bubble);
-    chatContainer.appendChild(msg);
-    chatContainer.scrollTop = chatContainer.scrollHeight;
-  }
-
-  function hideTyping() {
-    const indicator = document.getElementById('typing-indicator');
-    if (indicator) indicator.remove();
-  }
-
-  function setLoading(loading) {
-    isLoading = loading;
-    sendBtn.disabled = loading;
-    input.disabled = loading;
-    if (loading) showTyping(); else hideTyping();
-  }
-
-  async function send() {
-    const message = input.value.trim();
-    if (!message || isLoading) return;
-
-    input.value = '';
-    input.style.height = 'auto';
-
-    appendMessage('user', message);
-    setLoading(true);
-
-    try {
-      const res = await fetch('/chat', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ message, history }),
-      });
-
-      const data = await res.json();
-
-      if (!res.ok) {
-        appendMessage('assistant', `Error: ${data.error || res.statusText}`, true);
-      } else {
-        history = data.history;
-        appendMessage('assistant', data.reply);
+        try {
+          const payload = JSON.parse(data);
+          handleEvent(eventType, payload, textEl, labelEl, assistantEl);
+          if (eventType === 'done') { history = payload.history || []; }
+        } catch (e) { console.error('SSE parse error', e); }
       }
-    } catch (err) {
-      appendMessage('assistant', `Network error: ${err.message}`, true);
-    } finally {
-      setLoading(false);
-      input.focus();
+    }
+  } catch (err) {
+    showError(err.message || 'Connection failed');
+    textEl.textContent = '⚠️ ' + (err.message || 'Request failed');
+  } finally {
+    labelEl.innerHTML = 'OCI Assistant';
+    streaming = false;
+    document.getElementById('send-btn').disabled = false;
+    document.getElementById('input').focus();
+    scrollToBottom();
+  }
+}
+
+// ── Handle SSE events ─────────────────────────────────────────────────────────
+function handleEvent(type, payload, textEl, labelEl, assistantEl) {
+  switch (type) {
+    case 'text': {
+      textEl.textContent += payload.delta;
+      scrollToBottom();
+      break;
+    }
+    case 'tool_call': {
+      const card = createToolCard(payload.id, payload.name, payload.input);
+      assistantEl.querySelector('.text').after(card);
+      scrollToBottom();
+      break;
+    }
+    case 'tool_result': {
+      const card = document.getElementById('tool-' + payload.id);
+      if (card) {
+        card.classList.remove('pending');
+        card.classList.add('done');
+        card.querySelector('.status').textContent = '✓ done';
+        const body = card.querySelector('.tool-body');
+        body.textContent = typeof payload.result === 'object'
+          ? JSON.stringify(payload.result, null, 2)
+          : String(payload.result);
+      }
+      break;
+    }
+    case 'tool_error': {
+      const card = document.getElementById('tool-' + payload.id);
+      if (card) {
+        card.classList.remove('pending');
+        card.classList.add('error');
+        card.querySelector('.status').textContent = '✗ error';
+        const body = card.querySelector('.tool-body');
+        body.textContent = payload.error;
+        card.classList.add('expanded');
+      }
+      break;
+    }
+    case 'done': {
+      labelEl.innerHTML = 'OCI Assistant';
+      break;
+    }
+    case 'error': {
+      textEl.textContent = '⚠️ ' + payload.message;
+      showError(payload.message);
+      break;
     }
   }
+}
 
-  // Focus input on load
-  input.focus();
+// ── Create tool call card ─────────────────────────────────────────────────────
+function createToolCard(id, name, input) {
+  const friendly = toolLabel(name);
+  const card = document.createElement('div');
+  card.className = 'tool-call pending';
+  card.id = 'tool-' + id;
+
+  card.innerHTML = `
+    <div class="tool-header">
+      <span class="icon">⚙️</span>
+      <span class="name">${esc(friendly)}</span>
+      <span class="status"><span class="spinner"></span> calling…</span>
+    </div>
+    <button class="tool-toggle" onclick="toggleToolBody(this)">▸ Show params</button>
+    <div class="tool-body">${esc(JSON.stringify(input, null, 2))}</div>
+  `;
+  return card;
+}
+
+function toggleToolBody(btn) {
+  const card = btn.closest('.tool-call');
+  card.classList.toggle('expanded');
+  btn.textContent = card.classList.contains('expanded') ? '▾ Hide params' : '▸ Show params';
+}
+
+function toolLabel(name) {
+  return name
+    .replace('__', ' › ')
+    .replace(/_/g, ' ')
+    .replace(/\b\w/g, c => c.toUpperCase());
+}
+
+// ── Append a message bubble ───────────────────────────────────────────────────
+function appendMessage(role, text) {
+  const container = document.getElementById('messages');
+  const div = document.createElement('div');
+  div.className = `msg msg-${role}`;
+
+  if (role === 'user') {
+    div.innerHTML = `<div class="label">You</div><div class="bubble">${esc(text)}</div>`;
+  } else {
+    div.innerHTML = `<div class="label">OCI Assistant</div><div class="text">${esc(text)}</div>`;
+  }
+
+  container.appendChild(div);
+  scrollToBottom();
+  return div;
+}
+
+// ── Utilities ─────────────────────────────────────────────────────────────────
+function scrollToBottom() {
+  const m = document.getElementById('messages');
+  m.scrollTop = m.scrollHeight;
+}
+
+function esc(str) {
+  return String(str)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;');
+}
+
+function showError(msg) {
+  const existing = document.querySelector('.toast');
+  if (existing) existing.remove();
+  const toast = document.createElement('div');
+  toast.className = 'toast';
+  toast.textContent = msg;
+  document.body.appendChild(toast);
+  setTimeout(() => toast.remove(), 5000);
+}
+
+function clearChat() {
+  history = [];
+  const msgs = document.getElementById('messages');
+  msgs.innerHTML = `
+    <div class="welcome" id="welcome">
+      <div class="icon">☁️</div>
+      <h2>Manage Oracle Cloud with natural language</h2>
+      <p>Ask me to list, inspect, or create resources in your OCI tenancy.<br>
+         I follow OCI best practices and always confirm before creating anything.</p>
+      <div class="suggestions">
+        <div class="suggestion" onclick="send(this.textContent)">List all my compute instances</div>
+        <div class="suggestion" onclick="send(this.textContent)">Show me my VCNs and their CIDRs</div>
+        <div class="suggestion" onclick="send(this.textContent)">Create a dev VCN with best-practice settings</div>
+        <div class="suggestion" onclick="send(this.textContent)">List all object storage buckets</div>
+        <div class="suggestion" onclick="send(this.textContent)">What autonomous databases do I have?</div>
+        <div class="suggestion" onclick="send(this.textContent)">Help me plan a new VCN and subnet layout</div>
+      </div>
+    </div>`;
+}
 </script>
 </body>
 </html>

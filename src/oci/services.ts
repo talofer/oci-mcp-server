@@ -9,6 +9,8 @@ import {
 } from './client';
 import logger from '../utils/logger';
 
+// ─── Compute ──────────────────────────────────────────────────────────────────
+
 export class ComputeService {
   private client: OCI.core.ComputeClient;
   private compartmentId: string;
@@ -20,14 +22,8 @@ export class ComputeService {
 
   async listInstances() {
     try {
-      const items: OCI.core.models.Instance[] = [];
-      let page: string | undefined;
-      do {
-        const response = await this.client.listInstances({ compartmentId: this.compartmentId, page });
-        items.push(...response.items);
-        page = response.opcNextPage;
-      } while (page);
-      return items;
+      const response = await this.client.listInstances({ compartmentId: this.compartmentId });
+      return response.items;
     } catch (error) {
       logger.error('Error listing compute instances', { error });
       throw error;
@@ -52,10 +48,9 @@ export class ComputeService {
     availabilityDomain: string,
     metadata?: Record<string, string>,
     shapeConfig?: { ocpus?: number; memoryInGBs?: number },
-    assignPublicIp = true
   ) {
     try {
-      const launchDetails: OCI.core.models.LaunchInstanceDetails = {
+      const launchInstanceDetails: OCI.core.models.LaunchInstanceDetails = {
         availabilityDomain,
         compartmentId: this.compartmentId,
         displayName,
@@ -64,13 +59,19 @@ export class ComputeService {
           sourceType: 'image',
           imageId,
         } as OCI.core.models.InstanceSourceViaImageDetails,
-        createVnicDetails: { subnetId, assignPublicIp } as OCI.core.models.CreateVnicDetails,
+        createVnicDetails: {
+          subnetId,
+          assignPublicIp: true,
+        } as OCI.core.models.CreateVnicDetails,
         metadata,
+        ...(shapeConfig && {
+          shapeConfig: {
+            ocpus: shapeConfig.ocpus,
+            memoryInGBs: shapeConfig.memoryInGBs,
+          } as OCI.core.models.LaunchInstanceShapeConfigDetails,
+        }),
       };
-      if (shapeConfig) {
-        launchDetails.shapeConfig = shapeConfig as OCI.core.models.LaunchInstanceShapeConfigDetails;
-      }
-      const response = await this.client.launchInstance({ launchInstanceDetails: launchDetails });
+      const response = await this.client.launchInstance({ launchInstanceDetails });
       return response.instance;
     } catch (error) {
       logger.error('Error creating compute instance', { error });
@@ -78,6 +79,8 @@ export class ComputeService {
     }
   }
 }
+
+// ─── Network ──────────────────────────────────────────────────────────────────
 
 export class NetworkService {
   private client: OCI.core.VirtualNetworkClient;
@@ -90,14 +93,8 @@ export class NetworkService {
 
   async listVcns() {
     try {
-      const items: OCI.core.models.Vcn[] = [];
-      let page: string | undefined;
-      do {
-        const response = await this.client.listVcns({ compartmentId: this.compartmentId, page });
-        items.push(...response.items);
-        page = response.opcNextPage;
-      } while (page);
-      return items;
+      const response = await this.client.listVcns({ compartmentId: this.compartmentId });
+      return response.items;
     } catch (error) {
       logger.error('Error listing VCNs', { error });
       throw error;
@@ -132,14 +129,11 @@ export class NetworkService {
 
   async listSubnets(vcnId?: string) {
     try {
-      const items: OCI.core.models.Subnet[] = [];
-      let page: string | undefined;
-      do {
-        const response = await this.client.listSubnets({ compartmentId: this.compartmentId, vcnId, page });
-        items.push(...response.items);
-        page = response.opcNextPage;
-      } while (page);
-      return items;
+      const response = await this.client.listSubnets({
+        compartmentId: this.compartmentId,
+        vcnId,
+      });
+      return response.items;
     } catch (error) {
       logger.error('Error listing subnets', { error });
       throw error;
@@ -151,7 +145,7 @@ export class NetworkService {
     vcnId: string,
     cidrBlock: string,
     availabilityDomain?: string,
-    dnsLabel?: string
+    dnsLabel?: string,
   ) {
     try {
       const createSubnetDetails: OCI.core.models.CreateSubnetDetails = {
@@ -171,6 +165,8 @@ export class NetworkService {
   }
 }
 
+// ─── Block Storage ────────────────────────────────────────────────────────────
+
 export class BlockStorageService {
   private client: OCI.core.BlockstorageClient;
   private compartmentId: string;
@@ -182,14 +178,8 @@ export class BlockStorageService {
 
   async listVolumes() {
     try {
-      const items: OCI.core.models.Volume[] = [];
-      let page: string | undefined;
-      do {
-        const response = await this.client.listVolumes({ compartmentId: this.compartmentId, page });
-        items.push(...response.items);
-        page = response.opcNextPage;
-      } while (page);
-      return items;
+      const response = await this.client.listVolumes({ compartmentId: this.compartmentId });
+      return response.items;
     } catch (error) {
       logger.error('Error listing volumes', { error });
       throw error;
@@ -223,6 +213,8 @@ export class BlockStorageService {
   }
 }
 
+// ─── Object Storage ───────────────────────────────────────────────────────────
+
 export class ObjectStorageService {
   private client: OCI.objectstorage.ObjectStorageClient;
   private compartmentId: string;
@@ -238,7 +230,7 @@ export class ObjectStorageService {
     try {
       const response = await this.client.getNamespace({});
       this.namespace = response.value;
-      return this.namespace as string;
+      return this.namespace;
     } catch (error) {
       logger.error('Error getting object storage namespace', { error });
       throw error;
@@ -248,14 +240,11 @@ export class ObjectStorageService {
   async listBuckets() {
     try {
       const namespaceName = await this.getNamespace();
-      const items: OCI.objectstorage.models.BucketSummary[] = [];
-      let page: string | undefined;
-      do {
-        const response = await this.client.listBuckets({ compartmentId: this.compartmentId, namespaceName, page });
-        items.push(...response.items);
-        page = response.opcNextPage;
-      } while (page);
-      return items;
+      const response = await this.client.listBuckets({
+        compartmentId: this.compartmentId,
+        namespaceName,
+      });
+      return response.items;
     } catch (error) {
       logger.error('Error listing buckets', { error });
       throw error;
@@ -275,8 +264,8 @@ export class ObjectStorageService {
 
   async createBucket(
     name: string,
-    publicAccessType = 'NoPublicAccess',
-    storageTier = 'Standard'
+    publicAccessType: string = 'NoPublicAccess',
+    storageTier: string = 'Standard',
   ) {
     try {
       const namespaceName = await this.getNamespace();
@@ -295,6 +284,8 @@ export class ObjectStorageService {
   }
 }
 
+// ─── Database ─────────────────────────────────────────────────────────────────
+
 export class DatabaseService {
   private client: OCI.database.DatabaseClient;
   private compartmentId: string;
@@ -306,26 +297,24 @@ export class DatabaseService {
 
   async listAutonomousDatabases() {
     try {
-      const items: OCI.database.models.AutonomousDatabaseSummary[] = [];
-      let page: string | undefined;
-      do {
-        const response = await this.client.listAutonomousDatabases({ compartmentId: this.compartmentId, page });
-        items.push(...response.items);
-        page = response.opcNextPage;
-      } while (page);
-      return items;
+      const response = await this.client.listAutonomousDatabases({
+        compartmentId: this.compartmentId,
+      });
+      return response.items;
     } catch (error) {
       logger.error('Error listing autonomous databases', { error });
       throw error;
     }
   }
 
-  async getAutonomousDatabase(autonomousDatabaseId: string) {
+  async getAutonomousDatabase(databaseId: string) {
     try {
-      const response = await this.client.getAutonomousDatabase({ autonomousDatabaseId });
+      const response = await this.client.getAutonomousDatabase({
+        autonomousDatabaseId: databaseId,
+      });
       return response.autonomousDatabase;
     } catch (error) {
-      logger.error(`Error getting autonomous database: ${autonomousDatabaseId}`, { error });
+      logger.error(`Error getting autonomous database: ${databaseId}`, { error });
       throw error;
     }
   }
@@ -336,11 +325,13 @@ export class DatabaseService {
     adminPassword: string,
     cpuCoreCount: number,
     dataStorageSizeInTBs: number,
-    isFreeTier = false,
-    dbWorkload = 'OLTP'
+    isFreeTier: boolean = false,
+    dbWorkload: string = 'OLTP',
   ) {
     try {
-      const details = {
+      // CreateAutonomousDatabaseDetails requires source discriminator = "NONE" for new DBs
+      const createAutonomousDatabaseDetails: OCI.database.models.CreateAutonomousDatabaseDetails = {
+        source: OCI.database.models.CreateAutonomousDatabaseDetails.source,
         compartmentId: this.compartmentId,
         displayName,
         dbName,
@@ -349,10 +340,9 @@ export class DatabaseService {
         dataStorageSizeInTBs,
         isFreeTier,
         dbWorkload: dbWorkload as OCI.database.models.CreateAutonomousDatabaseBase.DbWorkload,
-        source: 'NONE' as const,
       };
       const response = await this.client.createAutonomousDatabase({
-        createAutonomousDatabaseDetails: details,
+        createAutonomousDatabaseDetails,
       });
       return response.autonomousDatabase;
     } catch (error) {
