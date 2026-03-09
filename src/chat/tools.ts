@@ -7,12 +7,12 @@ import Anthropic from '@anthropic-ai/sdk';
 export const OCI_SYSTEM_PROMPT = `You are an OCI (Oracle Cloud Infrastructure) assistant powered by Claude and connected to a live OCI tenancy via MCP (Model Context Protocol). You can list and create real cloud resources.
 
 ## Capabilities
-You have 16 OCI tools covering:
-- **Compute**: list/get/create instances; list availability domains, images, and shapes
-- **Network**: list/create VCNs and subnets
-- **Block Storage**: list/create volumes
-- **Object Storage**: list/create buckets
-- **Database**: list/create Autonomous Databases
+You have 22 OCI tools covering:
+- **Compute**: list/get/create/terminate instances; list availability domains, images, and shapes
+- **Network**: list/create/delete VCNs and subnets
+- **Block Storage**: list/create/delete volumes
+- **Object Storage**: list/create/delete buckets
+- **Database**: list/create/delete Autonomous Databases
 
 ## OCI Well-Architected Best Practices (ALWAYS follow these)
 
@@ -63,8 +63,21 @@ Guide users to free options where appropriate:
    - Security/cost notes
    - Recommended tags
 4. **Request confirmation** — End with: "Shall I proceed? (yes/no)"
-5. **Wait** — Do NOT call any create_* tool until the user types yes/confirm/proceed
+5. **Wait** — Do NOT call any create_* or terminate_*/delete_* tool until the user types yes/confirm/proceed
 6. **Create and report** — After creation, show the OCID, lifecycle state, and next steps
+
+## MANDATORY Workflow for Resource Termination/Deletion
+⚠️ Termination is PERMANENT and IRREVERSIBLE. You MUST:
+
+1. **Identify the resource** — Use list_* tools to confirm the exact OCID/name of what the user wants to delete
+2. **Check dependencies** — Warn about OCI deletion prerequisites:
+   - Instances: must be RUNNING or STOPPED (not PROVISIONING)
+   - Volumes: must be detached from all instances first
+   - VCNs: all subnets, internet gateways, NAT gateways, service gateways, local peering gateways, dynamic routing gateways, and non-default route tables/security lists must be deleted first
+   - Buckets: must be empty (all objects deleted) before deletion
+3. **State clearly** — Tell the user: what will be deleted, its OCID, and that this CANNOT be undone
+4. **Require explicit confirmation** — Do NOT proceed unless the user says yes/confirm/delete/proceed
+5. **Report outcome** — After deletion, confirm what was removed and suggest any follow-up cleanup
 
 ## Response Style
 - Format resource lists as clean tables or structured lists
@@ -276,6 +289,78 @@ export const OCI_TOOLS: Anthropic.Tool[] = [
         },
       },
       required: ['display_name', 'db_name', 'admin_password', 'cpu_core_count', 'data_storage_size_in_tbs'],
+    },
+  },
+
+  /* ── TERMINATION / DELETION ── */
+  {
+    name: 'compute__terminate_instance',
+    description: 'PERMANENTLY terminate a compute instance. IRREVERSIBLE — all data on the boot volume is lost unless preserve_boot_volume=true. ONLY call after explicit user confirmation.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        instance_id: { type: 'string', description: 'Instance OCID to terminate (starts with ocid1.instance...)' },
+        preserve_boot_volume: {
+          type: 'boolean',
+          description: 'true = keep the boot volume after termination (useful for reattaching later). Default: false (boot volume is deleted too).',
+        },
+      },
+      required: ['instance_id'],
+    },
+  },
+  {
+    name: 'network__delete_vcn',
+    description: 'Delete a VCN. IRREVERSIBLE. Prerequisites: all subnets, internet/NAT/service gateways, non-default route tables and security lists must be removed first. ONLY call after explicit user confirmation.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        vcn_id: { type: 'string', description: 'VCN OCID to delete (starts with ocid1.vcn...)' },
+      },
+      required: ['vcn_id'],
+    },
+  },
+  {
+    name: 'network__delete_subnet',
+    description: 'Delete a subnet. IRREVERSIBLE. All instances in the subnet must be terminated first. ONLY call after explicit user confirmation.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        subnet_id: { type: 'string', description: 'Subnet OCID to delete (starts with ocid1.subnet...)' },
+      },
+      required: ['subnet_id'],
+    },
+  },
+  {
+    name: 'block_storage__delete_volume',
+    description: 'Delete a block storage volume. IRREVERSIBLE. The volume must be detached from all instances first. ONLY call after explicit user confirmation.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        volume_id: { type: 'string', description: 'Volume OCID to delete (starts with ocid1.volume...)' },
+      },
+      required: ['volume_id'],
+    },
+  },
+  {
+    name: 'object_storage__delete_bucket',
+    description: 'Delete an object storage bucket. IRREVERSIBLE. The bucket must be completely empty first (all objects and multipart uploads deleted). ONLY call after explicit user confirmation.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        bucket_name: { type: 'string', description: 'Bucket name to delete' },
+      },
+      required: ['bucket_name'],
+    },
+  },
+  {
+    name: 'database__delete_autonomous_database',
+    description: 'PERMANENTLY delete an Autonomous Database and ALL its data. IRREVERSIBLE. Free tier DBs can be recreated, but all data is gone. ONLY call after explicit user confirmation.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        database_id: { type: 'string', description: 'Autonomous Database OCID to delete (starts with ocid1.autonomousdatabase...)' },
+      },
+      required: ['database_id'],
     },
   },
 ];

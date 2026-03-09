@@ -107,6 +107,17 @@ export class ComputeService {
       throw error;
     }
   }
+
+  async terminateInstance(instanceId: string, preserveBootVolume: boolean = false) {
+    try {
+      await this.client.terminateInstance({ instanceId, preserveBootVolume });
+      logger.info(`Terminate request accepted for instance: ${instanceId}`);
+      return { instanceId, status: 'TERMINATING', preserveBootVolume };
+    } catch (error) {
+      logger.error(`Error terminating compute instance: ${instanceId}`, { error });
+      throw error;
+    }
+  }
 }
 
 // ─── Network ──────────────────────────────────────────────────────────────────
@@ -192,6 +203,28 @@ export class NetworkService {
       throw error;
     }
   }
+
+  async deleteVcn(vcnId: string) {
+    try {
+      await this.client.deleteVcn({ vcnId });
+      logger.info(`Delete request accepted for VCN: ${vcnId}`);
+      return { vcnId, status: 'DELETED' };
+    } catch (error) {
+      logger.error(`Error deleting VCN: ${vcnId}`, { error });
+      throw error;
+    }
+  }
+
+  async deleteSubnet(subnetId: string) {
+    try {
+      await this.client.deleteSubnet({ subnetId });
+      logger.info(`Delete request accepted for subnet: ${subnetId}`);
+      return { subnetId, status: 'DELETED' };
+    } catch (error) {
+      logger.error(`Error deleting subnet: ${subnetId}`, { error });
+      throw error;
+    }
+  }
 }
 
 // ─── Block Storage ────────────────────────────────────────────────────────────
@@ -237,6 +270,17 @@ export class BlockStorageService {
       return response.volume;
     } catch (error) {
       logger.error('Error creating volume', { error });
+      throw error;
+    }
+  }
+
+  async deleteVolume(volumeId: string) {
+    try {
+      await this.client.deleteVolume({ volumeId });
+      logger.info(`Delete request accepted for volume: ${volumeId}`);
+      return { volumeId, status: 'DELETED' };
+    } catch (error) {
+      logger.error(`Error deleting volume: ${volumeId}`, { error });
       throw error;
     }
   }
@@ -308,6 +352,18 @@ export class ObjectStorageService {
       return response.bucket;
     } catch (error) {
       logger.error(`Error creating bucket: ${name}`, { error });
+      throw error;
+    }
+  }
+
+  async deleteBucket(bucketName: string) {
+    try {
+      const namespaceName = await this.getNamespace();
+      await this.client.deleteBucket({ namespaceName, bucketName });
+      logger.info(`Delete request accepted for bucket: ${bucketName}`);
+      return { bucketName, status: 'DELETED' };
+    } catch (error) {
+      logger.error(`Error deleting bucket: ${bucketName}`, { error });
       throw error;
     }
   }
@@ -401,6 +457,17 @@ export class DatabaseService {
       return response.autonomousDatabase;
     } catch (error) {
       logger.error(`Error creating autonomous database: ${displayName}`, { error });
+      throw error;
+    }
+  }
+
+  async deleteAutonomousDatabase(databaseId: string) {
+    try {
+      await this.client.deleteAutonomousDatabase({ autonomousDatabaseId: databaseId });
+      logger.info(`Delete request accepted for Autonomous Database: ${databaseId}`);
+      return { databaseId, status: 'TERMINATING' };
+    } catch (error) {
+      logger.error(`Error deleting autonomous database: ${databaseId}`, { error });
       throw error;
     }
   }

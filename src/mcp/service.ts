@@ -187,6 +187,65 @@ const MCP_TOOLS: MCPTool[] = [
       required: ['display_name', 'db_name', 'admin_password', 'cpu_core_count', 'data_storage_size_in_tbs'],
     },
   },
+
+  /* ── TERMINATION / DELETION ── */
+  {
+    name: 'compute__terminate_instance',
+    description: 'PERMANENTLY terminate a compute instance. IRREVERSIBLE. Only call after explicit user confirmation.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        instance_id: { type: 'string', description: 'Instance OCID to terminate' },
+        preserve_boot_volume: { type: 'boolean', description: 'Keep the boot volume after termination (default: false)' },
+      },
+      required: ['instance_id'],
+    },
+  },
+  {
+    name: 'network__delete_vcn',
+    description: 'Delete a VCN. All subnets, gateways, and route tables must be deleted first. IRREVERSIBLE. Only call after explicit user confirmation.',
+    inputSchema: {
+      type: 'object',
+      properties: { vcn_id: { type: 'string', description: 'VCN OCID to delete' } },
+      required: ['vcn_id'],
+    },
+  },
+  {
+    name: 'network__delete_subnet',
+    description: 'Delete a subnet. All instances in the subnet must be terminated first. IRREVERSIBLE. Only call after explicit user confirmation.',
+    inputSchema: {
+      type: 'object',
+      properties: { subnet_id: { type: 'string', description: 'Subnet OCID to delete' } },
+      required: ['subnet_id'],
+    },
+  },
+  {
+    name: 'block_storage__delete_volume',
+    description: 'Delete a block volume. Volume must be detached from all instances first. IRREVERSIBLE. Only call after explicit user confirmation.',
+    inputSchema: {
+      type: 'object',
+      properties: { volume_id: { type: 'string', description: 'Volume OCID to delete' } },
+      required: ['volume_id'],
+    },
+  },
+  {
+    name: 'object_storage__delete_bucket',
+    description: 'Delete an object storage bucket. Bucket must be empty first. IRREVERSIBLE. Only call after explicit user confirmation.',
+    inputSchema: {
+      type: 'object',
+      properties: { bucket_name: { type: 'string', description: 'Bucket name to delete' } },
+      required: ['bucket_name'],
+    },
+  },
+  {
+    name: 'database__delete_autonomous_database',
+    description: 'PERMANENTLY delete an Autonomous Database and all its data. IRREVERSIBLE. Only call after explicit user confirmation.',
+    inputSchema: {
+      type: 'object',
+      properties: { database_id: { type: 'string', description: 'Autonomous Database OCID to delete' } },
+      required: ['database_id'],
+    },
+  },
 ];
 
 // ─── OCI Service instances (lazy-initialised) ─────────────────────────────────
@@ -357,6 +416,28 @@ async function executeOCITool(name: string, a: Args): Promise<unknown> {
       );
       return { id: d.id, displayName: d.displayName, dbName: d.dbName, lifecycleState: d.lifecycleState, isFreeTier: d.isFreeTier };
     }
+
+    /* ── TERMINATION / DELETION ── */
+    case 'compute__terminate_instance':
+      return await cs.terminateInstance(
+        a.instance_id as string,
+        (a.preserve_boot_volume as boolean | undefined) ?? false,
+      );
+
+    case 'network__delete_vcn':
+      return await ns.deleteVcn(a.vcn_id as string);
+
+    case 'network__delete_subnet':
+      return await ns.deleteSubnet(a.subnet_id as string);
+
+    case 'block_storage__delete_volume':
+      return await bs.deleteVolume(a.volume_id as string);
+
+    case 'object_storage__delete_bucket':
+      return await os.deleteBucket(a.bucket_name as string);
+
+    case 'database__delete_autonomous_database':
+      return await ds.deleteAutonomousDatabase(a.database_id as string);
 
     default:
       throw new Error(`Unknown OCI tool: ${name}`);
