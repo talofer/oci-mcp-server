@@ -2,12 +2,16 @@
  * Electron main process for OCI MCP Server desktop app.
  *
  * Startup sequence:
- *   1. Load (or pick) an oci-config.json file
- *   2. Populate process.env from the JSON
+ *   1. Load (or pick) a config file (.env or .json)
+ *   2. Populate process.env from the config
  *   3. Show splash window
  *   4. Start the Express server in-process
  *   5. Open the main BrowserWindow once the server is ready
  *   6. On window close → shut down HTTP server → quit
+ *
+ * Supported config formats:
+ *   .env  — standard KEY=VALUE dotenv file (e.g. the project's .env)
+ *   .json — JSON object with env-var keys or camelCase aliases
  */
 
 import { app, BrowserWindow, dialog } from 'electron';
@@ -66,16 +70,35 @@ const REQUIRED_OCI_KEYS = [
 ];
 
 function loadOciConfig(configFilePath: string): void {
-  let data: Record<string, string>;
-  try {
-    data = JSON.parse(fs.readFileSync(configFilePath, 'utf8')) as Record<string, string>;
-  } catch (err) {
-    throw new Error(`Failed to parse config file: ${(err as Error).message}`);
-  }
+  const ext = path.extname(configFilePath).toLowerCase();
 
-  for (const [envKey, aliases] of Object.entries(CONFIG_ALIAS_MAP)) {
-    const found = aliases.find(a => data[a]);
-    if (found && !process.env[envKey]) process.env[envKey] = data[found];
+  if (ext === '.json') {
+    // ── JSON format ──────────────────────────────────────────────────────────
+    let data: Record<string, string>;
+    try {
+      data = JSON.parse(fs.readFileSync(configFilePath, 'utf8')) as Record<string, string>;
+    } catch (err) {
+      throw new Error(`Failed to parse JSON config: ${(err as Error).message}`);
+    }
+    for (const [envKey, aliases] of Object.entries(CONFIG_ALIAS_MAP)) {
+      const found = aliases.find(a => data[a]);
+      if (found && !process.env[envKey]) process.env[envKey] = data[found];
+    }
+  } else {
+    // ── .env format (KEY=VALUE lines) ───────────────────────────────────────
+    // Use dotenv's parse so we handle quoted values, comments, etc.
+    /* eslint-disable @typescript-eslint/no-require-imports */
+    const dotenv = require('dotenv') as typeof import('dotenv');
+    let raw: string;
+    try {
+      raw = fs.readFileSync(configFilePath, 'utf8');
+    } catch (err) {
+      throw new Error(`Failed to read .env file: ${(err as Error).message}`);
+    }
+    const parsed = dotenv.parse(raw) as Record<string, string>;
+    for (const [key, value] of Object.entries(parsed)) {
+      if (!process.env[key]) process.env[key] = value;
+    }
   }
 
   const missing = REQUIRED_OCI_KEYS.filter(k => !process.env[k]);
@@ -188,7 +211,11 @@ app.whenReady().then(async () => {
     const result = await dialog.showOpenDialog({
       title: 'Select OCI Config File',
       buttonLabel: 'Open',
-      filters: [{ name: 'JSON Config', extensions: ['json'] }],
+      filters: [
+        { name: 'Config Files', extensions: ['env', 'json'] },
+        { name: 'dotenv (.env)', extensions: ['env'] },
+        { name: 'JSON Config', extensions: ['json'] },
+      ],
       properties: ['openFile'],
     });
 
