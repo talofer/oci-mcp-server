@@ -89,7 +89,11 @@ app.post('/chat', async (req, res) => {
     logger.info('Chat request', { preview: (message as string).slice(0, 80) });
   }
 
-  await handleChat(message.trim(), safeHistory, res, safePendingTool);
+  // Abort the agentic loop if the client disconnects (tab closed, Stop button, etc.)
+  const controller = new AbortController();
+  req.on('close', () => controller.abort());
+
+  await handleChat(message.trim(), safeHistory, res, safePendingTool, controller.signal);
 });
 
 // ─── Graceful shutdown (registered here so all entry points get it) ───────────

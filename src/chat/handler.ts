@@ -123,6 +123,7 @@ export async function handleChat(
   history: Anthropic.MessageParam[],
   res: Response,
   pendingTool?: PendingTool,
+  signal?: AbortSignal,
 ): Promise<void> {
   // ── SSE setup ──────────────────────────────────────────────────────────────
   res.setHeader('Content-Type', 'text/event-stream');
@@ -222,6 +223,9 @@ export async function handleChat(
 
   try {
     for (let turn = 0; turn < MAX_TURNS; turn++) {
+      // ── Abort check ───────────────────────────────────────────────────────
+      if (signal?.aborted) break;
+
       // ── Stream this turn ──────────────────────────────────────────────────
       const stream = client.messages.stream({
         model: 'claude-opus-4-6',
@@ -229,7 +233,7 @@ export async function handleChat(
         system: OCI_SYSTEM_PROMPT,
         tools: OCI_TOOLS,
         messages,
-      });
+      }, { signal });
 
       stream.on('text', (delta) => sse(res, 'text', { delta }));
 
@@ -281,6 +285,7 @@ export async function handleChat(
           }
 
           // ── Read tool: execute immediately ───────────────────────────────
+          if (signal?.aborted) break;
           sse(res, 'tool_call', { id: block.id, name: block.name, input: block.input });
 
           try {
