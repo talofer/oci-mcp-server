@@ -115,6 +115,15 @@ async function startServer(): Promise<number> {
   // All require() calls are dynamic so they happen AFTER process.env is populated.
   // Paths are relative to dist/electron/main.js → dist/ is one level up.
   /* eslint-disable @typescript-eslint/no-require-imports */
+
+  // When bundled by esbuild, every module shares the same __dirname (the bundle's
+  // output directory: dist/electron/).  Express's static middleware in index.ts uses
+  // path.join(__dirname, '../public') which would resolve to dist/public/ — wrong.
+  // Setting STATIC_DIR here (before index.ts is loaded) gives it the correct path.
+  if (!process.env.STATIC_DIR) {
+    process.env.STATIC_DIR = path.join(__dirname, '../../public');
+  }
+
   const { configureOCIClient } = require('../oci/config') as typeof import('../oci/config');
   configureOCIClient();
 

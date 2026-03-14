@@ -15,7 +15,11 @@ app.use(express.json());
 
 // ─── Static web UI ────────────────────────────────────────────────────────────
 
-app.use(express.static(path.join(__dirname, '../public')));
+// STATIC_DIR is set by the Electron main when running as a bundled desktop app
+// (esbuild collapses all __dirname to the bundle's output dir, so the relative
+// path must be overridden).  Falls back to the standard compiled location for
+// CLI / dev-server usage.
+app.use(express.static(process.env.STATIC_DIR ?? path.join(__dirname, '../public')));
 
 // ─── Service info ─────────────────────────────────────────────────────────────
 
