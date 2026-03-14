@@ -1,0 +1,231 @@
+<mxfile host="app.diagrams.net" modified="2026-03-13" agent="Claude Code" version="21.0.0">
+  <diagram name="OCI MCP Server Architecture" id="arch-diagram">
+    <mxGraphModel dx="1422" dy="762" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1654" pageHeight="1169" math="0" shadow="0">
+      <root>
+        <mxCell id="0" />
+        <mxCell id="1" parent="0" />
+
+        <!-- ═══════════════════════════════════════════════════════════════
+             YOUR LAPTOP zone
+        ════════════════════════════════════════════════════════════════ -->
+        <mxCell id="laptop" value="YOUR LAPTOP"
+          style="swimlane;startSize=35;fillColor=#dae8fc;strokeColor=#6c8ebf;fontSize=15;fontStyle=1;rounded=1;arcSize=2;html=1;verticalAlign=top;"
+          vertex="1" parent="1">
+          <mxGeometry x="30" y="30" width="900" height="970" as="geometry" />
+        </mxCell>
+
+        <!-- Browser -->
+        <mxCell id="browser" value="&lt;b&gt;Browser&lt;/b&gt;&lt;br/&gt;Web UI — public/ static files&lt;br/&gt;• User types natural-language OCI requests&lt;br/&gt;• Renders SSE stream: text · tool_call · tool_result · done"
+          style="rounded=1;whiteSpace=wrap;fillColor=#fff2cc;strokeColor=#d6b656;fontSize=11;html=1;arcSize=10;"
+          vertex="1" parent="laptop">
+          <mxGeometry x="270" y="65" width="360" height="90" as="geometry" />
+        </mxCell>
+
+        <!-- Express HTTP Server -->
+        <mxCell id="express" value="&lt;b&gt;Express HTTP Server&lt;/b&gt; — src/index.ts · src/cli.ts&lt;br/&gt;Startup: loads .env / config.json, reads private key from disk, validates env vars&lt;br/&gt;GET /  →  serve Web UI &amp;nbsp;|&amp;nbsp; POST /chat  →  SSE chat endpoint &amp;nbsp;|&amp;nbsp; POST /mcp  →  MCP Streamable HTTP"
+          style="rounded=1;whiteSpace=wrap;fillColor=#f8cecc;strokeColor=#b85450;fontSize=11;html=1;arcSize=10;"
+          vertex="1" parent="laptop">
+          <mxGeometry x="120" y="245" width="660" height="85" as="geometry" />
+        </mxCell>
+
+        <!-- Chat Handler -->
+        <mxCell id="chathandler" value="&lt;b&gt;chat/handler.ts&lt;/b&gt;&lt;br/&gt;• Calls Anthropic API (claude-opus-4-6)&lt;br/&gt;• Streams SSE back to browser&lt;br/&gt;• On tool_use → callOCIToolViaMCP()&lt;br/&gt;• Multi-turn agentic loop (max 20 turns)"
+          style="rounded=1;whiteSpace=wrap;fillColor=#d5e8d4;strokeColor=#82b366;fontSize=11;html=1;arcSize=10;"
+          vertex="1" parent="laptop">
+          <mxGeometry x="40" y="450" width="300" height="110" as="geometry" />
+        </mxCell>
+
+        <!-- MCP Streamable HTTP Transport -->
+        <mxCell id="mcphttp" value="&lt;b&gt;MCP Streamable HTTP Transport&lt;/b&gt;&lt;br/&gt;External MCP clients connect here:&lt;br/&gt;• Claude Desktop&lt;br/&gt;• Other AI agents / assistants"
+          style="rounded=1;whiteSpace=wrap;fillColor=#e1d5e7;strokeColor=#9673a6;fontSize=11;html=1;arcSize=10;"
+          vertex="1" parent="laptop">
+          <mxGeometry x="560" y="450" width="300" height="110" as="geometry" />
+        </mxCell>
+
+        <!-- MCP Server -->
+        <mxCell id="mcpserver" value="&lt;b&gt;MCP Server&lt;/b&gt; — src/mcp/service.ts&lt;br/&gt;Registers 22 OCI tools over MCP protocol&lt;br/&gt;compute__*  ·  network__*  ·  block_storage__*  ·  object_storage__*  ·  database__*&lt;br/&gt;Handles CallTool requests → routes to OCI service layer"
+          style="rounded=1;whiteSpace=wrap;fillColor=#ffe6cc;strokeColor=#d79b00;fontSize=11;html=1;arcSize=10;"
+          vertex="1" parent="laptop">
+          <mxGeometry x="195" y="680" width="510" height="100" as="geometry" />
+        </mxCell>
+
+        <!-- OCI Service Layer -->
+        <mxCell id="ociservices" value="&lt;b&gt;OCI Service Layer&lt;/b&gt; — src/oci/services.ts · client.ts · config.ts&lt;br/&gt;ComputeService · NetworkService · BlockStorageService · ObjectStorageService · DatabaseService · IdentityService&lt;br/&gt;OCI SDK wraps REST calls · RSA private key signing (key read from disk at startup, never leaves laptop)"
+          style="rounded=1;whiteSpace=wrap;fillColor=#f5f5f5;strokeColor=#666666;fontColor=#333333;fontSize=11;html=1;arcSize=10;"
+          vertex="1" parent="laptop">
+          <mxGeometry x="80" y="865" width="720" height="85" as="geometry" />
+        </mxCell>
+
+        <!-- Config file note -->
+        <mxCell id="configfile" value="&lt;b&gt;Config file&lt;/b&gt;&lt;br/&gt;.env or config.json&lt;br/&gt;─────────────&lt;br/&gt;OCI_USER_OCID&lt;br/&gt;OCI_TENANCY_OCID&lt;br/&gt;OCI_REGION&lt;br/&gt;OCI_FINGERPRINT&lt;br/&gt;OCI_KEY_FILE ←path&lt;br/&gt;OCI_COMPARTMENT_ID&lt;br/&gt;ANTHROPIC_API_KEY"
+          style="shape=note;whiteSpace=wrap;fontSize=10;fillColor=#fff2cc;strokeColor=#d6b656;html=1;size=15;"
+          vertex="1" parent="laptop">
+          <mxGeometry x="745" y="820" width="140" height="130" as="geometry" />
+        </mxCell>
+
+        <!-- Private key file -->
+        <mxCell id="keyfile" value="🔑 Private Key&lt;br/&gt;(PEM file on disk)"
+          style="shape=cylinder3;whiteSpace=wrap;fillColor=#f8cecc;strokeColor=#b85450;fontSize=10;html=1;direction=south;"
+          vertex="1" parent="laptop">
+          <mxGeometry x="40" y="850" width="110" height="60" as="geometry" />
+        </mxCell>
+
+        <!-- ═══════════════════════════════════════════════════════════════
+             ANTHROPIC CLOUD zone
+        ════════════════════════════════════════════════════════════════ -->
+        <mxCell id="anthropiczone" value="ANTHROPIC CLOUD"
+          style="swimlane;startSize=35;fillColor=#f8cecc;strokeColor=#b85450;fontSize=15;fontStyle=1;rounded=1;arcSize=2;html=1;verticalAlign=top;"
+          vertex="1" parent="1">
+          <mxGeometry x="1020" y="110" width="360" height="440" as="geometry" />
+        </mxCell>
+
+        <mxCell id="claudemodel" value="&lt;b&gt;claude-opus-4-6&lt;/b&gt;&lt;br/&gt;&lt;br/&gt;&lt;b&gt;Receives:&lt;/b&gt;&lt;br/&gt;• OCI system prompt&lt;br/&gt;• Conversation history (last 30 turns)&lt;br/&gt;• Tool definitions (22 tools)&lt;br/&gt;• User message&lt;br/&gt;&lt;br/&gt;&lt;b&gt;Returns:&lt;/b&gt;&lt;br/&gt;• Text response (streamed via SSE)&lt;br/&gt;• tool_use blocks (tool name + args)&lt;br/&gt;&lt;br/&gt;⚠️ Never sees OCI credentials&lt;br/&gt;or private key"
+          style="rounded=1;whiteSpace=wrap;fillColor=#ffffff;strokeColor=#b85450;fontSize=11;html=1;arcSize=10;"
+          vertex="1" parent="anthropiczone">
+          <mxGeometry x="30" y="55" width="300" height="365" as="geometry" />
+        </mxCell>
+
+        <!-- ═══════════════════════════════════════════════════════════════
+             OCI CLOUD zone
+        ════════════════════════════════════════════════════════════════ -->
+        <mxCell id="ocizone" value="ORACLE CLOUD (OCI)"
+          style="swimlane;startSize=35;fillColor=#fff2cc;strokeColor=#d6b656;fontSize=15;fontStyle=1;rounded=1;arcSize=2;html=1;verticalAlign=top;"
+          vertex="1" parent="1">
+          <mxGeometry x="1020" y="680" width="360" height="390" as="geometry" />
+        </mxCell>
+
+        <mxCell id="ociresources" value="&lt;b&gt;OCI REST APIs&lt;/b&gt;&lt;br/&gt;&lt;br/&gt;Compute Instances&lt;br/&gt;VCNs / Subnets&lt;br/&gt;Block Volumes&lt;br/&gt;Object Storage Buckets&lt;br/&gt;Autonomous Databases&lt;br/&gt;Identity / Availability Domains&lt;br/&gt;&lt;br/&gt;Auth: HTTPS + RSA request signing&lt;br/&gt;(signed on laptop, verified by OCI)"
+          style="rounded=1;whiteSpace=wrap;fillColor=#ffffff;strokeColor=#d6b656;fontSize=11;html=1;arcSize=10;"
+          vertex="1" parent="ocizone">
+          <mxGeometry x="30" y="55" width="300" height="315" as="geometry" />
+        </mxCell>
+
+        <!-- ═══════════════════════════════════════════════════════════════
+             External MCP client (outside laptop)
+        ════════════════════════════════════════════════════════════════ -->
+        <mxCell id="extmcp" value="External MCP Client&lt;br/&gt;(Claude Desktop, AI agents, etc.)"
+          style="rounded=1;whiteSpace=wrap;fillColor=#e1d5e7;strokeColor=#9673a6;fontSize=11;html=1;arcSize=10;dashed=1;"
+          vertex="1" parent="1">
+          <mxGeometry x="310" y="550" width="240" height="60" as="geometry" />
+        </mxCell>
+
+        <!-- ═══════════════════════════════════════════════════════════════
+             EDGES — all at parent="1" so they can cross zone boundaries
+        ════════════════════════════════════════════════════════════════ -->
+
+        <!-- Browser ──► Express: POST /chat -->
+        <mxCell id="e-browser-express" value="POST /chat (HTTP)"
+          style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;fontSize=10;html=1;"
+          edge="1" source="browser" target="express" parent="1">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+
+        <!-- Express ──► Chat Handler: /chat route -->
+        <mxCell id="e-express-chat" value="/chat route"
+          style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;fontSize=10;html=1;"
+          edge="1" source="express" target="chathandler" parent="1">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+
+        <!-- Express ──► MCP HTTP Transport: /mcp route -->
+        <mxCell id="e-express-mcphttp" value="/mcp route"
+          style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;fontSize=10;html=1;"
+          edge="1" source="express" target="mcphttp" parent="1">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+
+        <!-- Chat Handler ──► MCP Server: InMemoryTransport (dashed = in-process) -->
+        <mxCell id="e-chat-mcpserver" value="callOCIToolViaMCP()&lt;br/&gt;InMemoryTransport&lt;br/&gt;(in-process, no HTTP)"
+          style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;fontSize=10;html=1;dashed=1;endArrow=block;endFill=1;"
+          edge="1" source="chathandler" target="mcpserver" parent="1">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+
+        <!-- MCP HTTP Transport ──► MCP Server: StreamableHTTP -->
+        <mxCell id="e-mcphttp-server" value="StreamableHTTP&lt;br/&gt;Transport"
+          style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;fontSize=10;html=1;"
+          edge="1" source="mcphttp" target="mcpserver" parent="1">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+
+        <!-- MCP Server ──► OCI Services: tool dispatch -->
+        <mxCell id="e-mcp-ocisvcs" value="tool dispatch"
+          style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;fontSize=10;html=1;"
+          edge="1" source="mcpserver" target="ociservices" parent="1">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+
+        <!-- Key file ──► OCI Services: read at startup -->
+        <mxCell id="e-key-ocisvcs" value="read at startup"
+          style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;fontSize=10;html=1;dashed=1;"
+          edge="1" source="keyfile" target="ociservices" parent="1">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+
+        <!-- Config file ──► Express: load on startup -->
+        <mxCell id="e-config-express" value="load on startup"
+          style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;fontSize=10;html=1;dashed=1;"
+          edge="1" source="configfile" target="express" parent="1">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+
+        <!-- External MCP client ──► Express: POST /mcp (HTTP) -->
+        <mxCell id="e-ext-express" value="POST /mcp (HTTP)"
+          style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;fontSize=10;html=1;dashed=1;strokeColor=#9673a6;"
+          edge="1" source="extmcp" target="mcphttp" parent="1">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+
+        <!-- Chat Handler ──► Anthropic Cloud: HTTPS outbound -->
+        <mxCell id="e-chat-anthropic" value="HTTPS  api.anthropic.com&lt;br/&gt;messages + tool defs + history&lt;br/&gt;(ANTHROPIC_API_KEY)"
+          style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;fontSize=10;html=1;strokeColor=#b85450;fontColor=#b85450;exitX=1;exitY=0.3;exitDx=0;exitDy=0;entryX=0;entryY=0.3;entryDx=0;entryDy=0;"
+          edge="1" source="chathandler" target="claudemodel" parent="1">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+
+        <!-- Anthropic Cloud ──► Chat Handler: response (dashed return) -->
+        <mxCell id="e-anthropic-chat" value="text stream + tool_use blocks"
+          style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;fontSize=10;html=1;strokeColor=#b85450;fontColor=#b85450;dashed=1;exitX=0;exitY=0.65;exitDx=0;exitDy=0;entryX=1;entryY=0.65;entryDx=0;entryDy=0;"
+          edge="1" source="claudemodel" target="chathandler" parent="1">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+
+        <!-- OCI Services ──► OCI Cloud: HTTPS REST API calls -->
+        <mxCell id="e-ocisvcs-ocicloud" value="HTTPS  *.oraclecloud.com&lt;br/&gt;RSA-signed REST API calls"
+          style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;fontSize=10;html=1;strokeColor=#d6b656;fontColor=#996600;exitX=1;exitY=0.5;exitDx=0;exitDy=0;entryX=0;entryY=0.5;entryDx=0;entryDy=0;"
+          edge="1" source="ociservices" target="ociresources" parent="1">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+
+        <!-- OCI Cloud ──► OCI Services: results (dashed return) -->
+        <mxCell id="e-ocicloud-ocisvcs" value="JSON results"
+          style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;fontSize=10;html=1;strokeColor=#d6b656;fontColor=#996600;dashed=1;exitX=0;exitY=0.7;exitDx=0;exitDy=0;entryX=1;entryY=0.7;entryDx=0;entryDy=0;"
+          edge="1" source="ociresources" target="ociservices" parent="1">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+
+        <!-- ═══════════════════════════════════════════════════════════════
+             LEGEND
+        ════════════════════════════════════════════════════════════════ -->
+        <mxCell id="legend" value="Legend"
+          style="swimlane;startSize=25;fillColor=#f5f5f5;strokeColor=#666666;fontColor=#333333;fontSize=12;fontStyle=1;rounded=1;html=1;"
+          vertex="1" parent="1">
+          <mxGeometry x="1020" y="1090" width="340" height="60" as="geometry" />
+        </mxCell>
+
+        <mxCell id="legend-solid" value="Solid arrow = HTTP/HTTPS request"
+          style="text;html=1;fontSize=10;align=left;"
+          vertex="1" parent="legend">
+          <mxGeometry x="10" y="30" width="200" height="20" as="geometry" />
+        </mxCell>
+
+        <mxCell id="legend-dashed" value="Dashed arrow = in-process / response"
+          style="text;html=1;fontSize=10;align=left;"
+          vertex="1" parent="legend">
+          <mxGeometry x="10" y="45" width="220" height="20" as="geometry" />
+        </mxCell>
+
+      </root>
+    </mxGraphModel>
+  </diagram>
+</mxfile>
