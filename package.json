@@ -8,12 +8,12 @@
   },
   "scripts": {
     "build:server": "tsc -p tsconfig.json",
-    "build:electron": "tsc -p tsconfig.electron.json",
+    "build:electron": "node scripts/bundle-electron.cjs",
     "build": "npm run build:server && npm run build:electron",
     "dev": "ts-node-dev --respawn --transpile-only src/cli.ts",
     "start": "node dist/cli.js",
-    "electron:dev": "npm run build && electron .",
-    "electron:build": "npm run build && electron-builder --win nsis",
+    "electron:dev": "npm run build:server && tsc -p tsconfig.electron.json && electron .",
+    "electron:build": "npm run build && node scripts/package-win.cjs",
     "lint": "eslint . --ext .ts",
     "test": "jest",
     "prepublishOnly": "npm run build"
@@ -34,19 +34,13 @@
       "output": "installer"
     },
     "files": [
-      "dist/**/*",
+      "dist/electron/main.js",
       "public/**/*",
-      "node_modules/**/*",
       "package.json"
     ],
     "win": {
-      "target": "nsis"
-    },
-    "nsis": {
-      "oneClick": false,
-      "allowToChangeInstallationDirectory": true,
-      "createDesktopShortcut": true,
-      "createStartMenuShortcut": true
+      "target": "dir",
+      "forceCodeSigning": false
     }
   },
   "dependencies": {
@@ -66,8 +60,10 @@
     "@types/yargs": "^17.0.32",
     "@typescript-eslint/eslint-plugin": "^6.12.0",
     "@typescript-eslint/parser": "^6.12.0",
+    "cross-env": "^10.1.0",
     "electron": "^41.0.2",
     "electron-builder": "^26.8.1",
+    "esbuild": "^0.27.4",
     "eslint": "^8.54.0",
     "ts-node": "^10.9.1",
     "ts-node-dev": "^2.0.0",
