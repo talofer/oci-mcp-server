@@ -26,7 +26,7 @@ export const OCI_SYSTEM_PROMPT = `You are an OCI (Oracle Cloud Infrastructure) a
 When in doubt about whether a request is a question or a command — **ask for clarification** rather than taking action.
 
 ## Capabilities
-You have 61 OCI tools covering:
+You have 74 OCI tools covering:
 - **Identity & Compartments**: list/create compartments, groups, policies, dynamic groups
 - **Networking**: list/create VCNs, subnets, internet/NAT/service gateways, route tables, NSGs, DRGs
 - **Security**: Cloud Guard, Vault (key management), Bastion Service
@@ -35,6 +35,7 @@ You have 61 OCI tools covering:
 - **Block Storage**: list/create/delete volumes
 - **Object Storage**: list/create/delete buckets
 - **Database**: list/create/delete Autonomous Databases
+- **Resource Manager**: list/create/update/delete stacks; run PLAN/APPLY/DESTROY jobs; get job logs and Terraform state (managed Terraform-as-a-Service)
 
 ## Architecture Approach (ALWAYS follow for any architecture request)
 
@@ -71,6 +72,16 @@ Always include in every resource:
 3. End with: "Shall I proceed? (yes/no)"
 4. Wait for explicit confirmation
 5. Create and report OCID + lifecycle state
+
+## MANDATORY Resource Manager Workflow
+⚠️ For any stack change (APPLY or DESTROY):
+1. Run a **PLAN** job first (resource_manager__create_job with operation=PLAN)
+2. Poll the job until it reaches SUCCEEDED (use resource_manager__get_job)
+3. Fetch and **show the user the plan output** (resource_manager__get_job_logs)
+4. Ask "The plan shows X changes. Shall I proceed with APPLY? (yes/no)"
+5. Wait for confirmation, then run APPLY — the UI confirmation dialog will also appear
+6. Poll until SUCCEEDED, then fetch and show apply logs
+⚠️ NEVER run APPLY or DESTROY without first showing the user the PLAN output.
 
 ## MANDATORY Deletion Workflow
 ⚠️ Before calling any delete_*/terminate_* tool:
@@ -821,5 +832,137 @@ export const OCI_TOOLS: Anthropic.Tool[] = [
     name: 'sch__list_service_connectors',
     description: 'List Service Connector Hub connectors. SCH routes logs/metrics to destinations like Object Storage, Streaming, or Functions for SIEM integration.',
     input_schema: { type: 'object', properties: {} },
+  },
+
+  /* ── RESOURCE MANAGER (managed Terraform) ── */
+  {
+    name: 'resource_manager__list_terraform_versions',
+    description: 'List Terraform versions supported by OCI Resource Manager. Call this before creating a stack to pick a supported version.',
+    input_schema: { type: 'object', properties: {} },
+  },
+  {
+    name: 'resource_manager__list_stacks',
+    description: 'List all Resource Manager stacks (managed Terraform configs) in the compartment. Always call before creating a stack to check for naming conflicts.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        compartment_id: { type: 'string', description: 'Optional compartment OCID. Defaults to configured compartment.' },
+      },
+    },
+  },
+  {
+    name: 'resource_manager__get_stack',
+    description: 'Get details of a Resource Manager stack including variables, Terraform version, and lifecycle state.',
+    input_schema: {
+      type: 'object',
+      properties: { stack_id: { type: 'string', description: 'Stack OCID (starts with ocid1.ormstack...)' } },
+      required: ['stack_id'],
+    },
+  },
+  {
+    name: 'resource_manager__get_stack_tf_state',
+    description: 'Retrieve the current Terraform state file for a stack. Use to inspect what resources are currently managed.',
+    input_schema: {
+      type: 'object',
+      properties: { stack_id: { type: 'string', description: 'Stack OCID.' } },
+      required: ['stack_id'],
+    },
+  },
+  {
+    name: 'resource_manager__list_jobs',
+    description: 'List jobs for a stack or compartment. Use to check the status of recent plan/apply/destroy runs.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        stack_id:       { type: 'string', description: 'Optional: filter by stack OCID.' },
+        compartment_id: { type: 'string', description: 'Optional compartment OCID override.' },
+      },
+    },
+  },
+  {
+    name: 'resource_manager__get_job',
+    description: 'Get status and details of a specific Resource Manager job (PLAN, APPLY, DESTROY).',
+    input_schema: {
+      type: 'object',
+      properties: { job_id: { type: 'string', description: 'Job OCID (starts with ocid1.ormjob...)' } },
+      required: ['job_id'],
+    },
+  },
+  {
+    name: 'resource_manager__get_job_logs',
+    description: 'Retrieve Terraform execution logs for a job — the actual plan diff, apply output, or error messages. Call this after a job finishes to show the user what happened.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        job_id:    { type: 'string', description: 'Job OCID.' },
+        max_lines: { type: 'number', description: 'Maximum log lines to return. Default 200.' },
+      },
+      required: ['job_id'],
+    },
+  },
+  {
+    name: 'resource_manager__create_stack',
+    description: 'Create a Resource Manager stack from a Terraform config. ONLY call after user confirmation. Source options: (a) base64-encoded zip via zip_content_base64, or (b) zip stored in OCI Object Storage via object_storage_bucket + object_storage_object.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        display_name:             { type: 'string', description: 'Stack name. Convention: <env>-stack-<purpose>' },
+        description:              { type: 'string', description: 'What this stack provisions.' },
+        terraform_version:        { type: 'string', description: 'Terraform version e.g. "1.2.x". Use resource_manager__list_terraform_versions first.' },
+        variables:                { type: 'object', description: 'Terraform input variables as key-value pairs.', additionalProperties: { type: 'string' } },
+        zip_content_base64:       { type: 'string', description: 'Base64-encoded .zip of the Terraform config files. Use this OR the Object Storage fields.' },
+        object_storage_bucket:    { type: 'string', description: 'OCI Object Storage bucket containing the config zip.' },
+        object_storage_namespace: { type: 'string', description: 'Object Storage namespace (your tenancy name).' },
+        object_storage_object:    { type: 'string', description: 'Object key (path) of the .zip inside the bucket.' },
+      },
+      required: ['display_name'],
+    },
+  },
+  {
+    name: 'resource_manager__update_stack',
+    description: 'Update stack metadata or variables. ONLY call after user confirmation.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        stack_id:          { type: 'string', description: 'Stack OCID.' },
+        display_name:      { type: 'string', description: 'New name.' },
+        description:       { type: 'string', description: 'New description.' },
+        terraform_version: { type: 'string', description: 'New Terraform version.' },
+        variables:         { type: 'object', description: 'Updated input variables.', additionalProperties: { type: 'string' } },
+      },
+      required: ['stack_id'],
+    },
+  },
+  {
+    name: 'resource_manager__create_job',
+    description: 'Run a PLAN, APPLY, or DESTROY job against a stack. ONLY call after user confirmation. Best practice: always run PLAN first, show the user the diff from get_job_logs, then run APPLY only if they approve.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        stack_id:      { type: 'string', description: 'Stack OCID to execute against.' },
+        operation:     { type: 'string', enum: ['PLAN', 'APPLY', 'DESTROY'], description: 'PLAN: preview changes (safe, no resources touched). APPLY: create/update resources. DESTROY: permanently remove ALL managed resources.' },
+        display_name:  { type: 'string', description: 'Optional job name for easy identification.' },
+        auto_approved: { type: 'boolean', description: 'APPLY only: skip plan and auto-approve. Default false (recommended: always plan first).' },
+      },
+      required: ['stack_id', 'operation'],
+    },
+  },
+  {
+    name: 'resource_manager__cancel_job',
+    description: 'Cancel a running Resource Manager job. ONLY call after user confirmation.',
+    input_schema: {
+      type: 'object',
+      properties: { job_id: { type: 'string', description: 'Job OCID to cancel.' } },
+      required: ['job_id'],
+    },
+  },
+  {
+    name: 'resource_manager__delete_stack',
+    description: 'Delete a Resource Manager stack. IRREVERSIBLE. Run a DESTROY job first to remove all managed OCI resources, then delete the stack. ONLY call after explicit user confirmation.',
+    input_schema: {
+      type: 'object',
+      properties: { stack_id: { type: 'string', description: 'Stack OCID to delete.' } },
+      required: ['stack_id'],
+    },
   },
 ];

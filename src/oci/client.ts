@@ -98,3 +98,8 @@ export const getServiceConnectorClient = (): OCI.sch.ServiceConnectorClient => {
   const provider = createOCIConfig();
   return new OCI.sch.ServiceConnectorClient({ authenticationDetailsProvider: provider });
 };
+
+export const getResourceManagerClient = (): OCI.resourcemanager.ResourceManagerClient => {
+  const provider = createOCIConfig();
+  return new OCI.resourcemanager.ResourceManagerClient({ authenticationDetailsProvider: provider });
+};

@@ -27,7 +27,8 @@ function isWriteTool(name: string): boolean {
 // Anthropic returns rich rate-limit data in response headers.  Extract it so
 // the user can see exactly which limit was hit and when it will reset.
 
-function buildRateLimitMessage(error: Anthropic.RateLimitError): string {
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function buildRateLimitMessage(error: any): string {
   // Helper: works whether SDK gives us a Fetch Headers object or a plain dict.
   const h = error.headers as Record<string, string> | { get(k: string): string | null } | undefined;
   const get = (name: string): string | undefined => {

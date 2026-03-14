@@ -26,6 +26,9 @@ import {
 import {
   ObservabilityService,
 } from '../oci/services/observability';
+import {
+  ResourceManagerService,
+} from '../oci/services/resource-manager';
 import logger from '../utils/logger';
 
 // ─── Tool definitions exposed via MCP ────────────────────────────────────────
@@ -675,6 +678,138 @@ const MCP_TOOLS: MCPTool[] = [
     description: 'List service connectors.',
     inputSchema: { type: 'object', properties: {} },
   },
+
+  /* ── RESOURCE MANAGER ── */
+  {
+    name: 'resource_manager__list_stacks',
+    description: 'List all OCI Resource Manager stacks (managed Terraform configurations).',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        compartment_id: { type: 'string', description: 'Optional compartment OCID override.' },
+      },
+    },
+  },
+  {
+    name: 'resource_manager__get_stack',
+    description: 'Get details of a Resource Manager stack including variables and lifecycle state.',
+    inputSchema: {
+      type: 'object',
+      properties: { stack_id: { type: 'string', description: 'Stack OCID.' } },
+      required: ['stack_id'],
+    },
+  },
+  {
+    name: 'resource_manager__create_stack',
+    description: 'Create a Resource Manager stack from a zip upload or Object Storage source.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        display_name:            { type: 'string', description: 'Stack name.' },
+        description:             { type: 'string', description: 'Optional description.' },
+        terraform_version:       { type: 'string', description: 'e.g. "1.2.x". Defaults to latest supported.' },
+        variables:               { type: 'object', description: 'Key-value Terraform input variables.', additionalProperties: { type: 'string' } },
+        zip_content_base64:      { type: 'string', description: 'Base64-encoded .zip of the Terraform config. Use this OR Object Storage fields.' },
+        object_storage_bucket:   { type: 'string', description: 'OCI Object Storage bucket containing the config zip.' },
+        object_storage_namespace:{ type: 'string', description: 'Object Storage namespace (tenancy).' },
+        object_storage_object:   { type: 'string', description: 'Object key (path) of the .zip inside the bucket.' },
+      },
+      required: ['display_name'],
+    },
+  },
+  {
+    name: 'resource_manager__update_stack',
+    description: 'Update a stack display name, description, variables, or Terraform version.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        stack_id:         { type: 'string', description: 'Stack OCID.' },
+        display_name:     { type: 'string', description: 'New display name.' },
+        description:      { type: 'string', description: 'New description.' },
+        terraform_version:{ type: 'string', description: 'New Terraform version.' },
+        variables:        { type: 'object', description: 'Updated Terraform input variables.', additionalProperties: { type: 'string' } },
+      },
+      required: ['stack_id'],
+    },
+  },
+  {
+    name: 'resource_manager__delete_stack',
+    description: 'Delete a Resource Manager stack. IRREVERSIBLE. Destroy all managed resources first.',
+    inputSchema: {
+      type: 'object',
+      properties: { stack_id: { type: 'string', description: 'Stack OCID to delete.' } },
+      required: ['stack_id'],
+    },
+  },
+  {
+    name: 'resource_manager__get_stack_tf_state',
+    description: 'Retrieve the current Terraform state file for a stack.',
+    inputSchema: {
+      type: 'object',
+      properties: { stack_id: { type: 'string', description: 'Stack OCID.' } },
+      required: ['stack_id'],
+    },
+  },
+  {
+    name: 'resource_manager__list_jobs',
+    description: 'List all jobs for a stack or compartment.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        stack_id:      { type: 'string', description: 'Optional: filter by stack OCID.' },
+        compartment_id:{ type: 'string', description: 'Optional compartment OCID override.' },
+      },
+    },
+  },
+  {
+    name: 'resource_manager__get_job',
+    description: 'Get the status and details of a Resource Manager job.',
+    inputSchema: {
+      type: 'object',
+      properties: { job_id: { type: 'string', description: 'Job OCID.' } },
+      required: ['job_id'],
+    },
+  },
+  {
+    name: 'resource_manager__get_job_logs',
+    description: 'Retrieve Terraform execution logs for a job (plan, apply, destroy output).',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        job_id:   { type: 'string', description: 'Job OCID.' },
+        max_lines:{ type: 'number', description: 'Max log lines to return (default 200).' },
+      },
+      required: ['job_id'],
+    },
+  },
+  {
+    name: 'resource_manager__create_job',
+    description: 'Create a Resource Manager job (PLAN, APPLY, or DESTROY) against a stack.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        stack_id:     { type: 'string', description: 'Stack OCID to run against.' },
+        operation:    { type: 'string', enum: ['PLAN', 'APPLY', 'DESTROY'], description: 'PLAN: preview changes. APPLY: create/update resources. DESTROY: remove all managed resources.' },
+        display_name: { type: 'string', description: 'Optional job name.' },
+        auto_approved:{ type: 'boolean', description: 'APPLY only: skip plan review and auto-approve. Default false (uses latest successful plan).' },
+      },
+      required: ['stack_id', 'operation'],
+    },
+  },
+  {
+    name: 'resource_manager__cancel_job',
+    description: 'Cancel a running Resource Manager job.',
+    inputSchema: {
+      type: 'object',
+      properties: { job_id: { type: 'string', description: 'Job OCID to cancel.' } },
+      required: ['job_id'],
+    },
+  },
+  {
+    name: 'resource_manager__list_terraform_versions',
+    description: 'List Terraform versions supported by OCI Resource Manager.',
+    inputSchema: { type: 'object', properties: {} },
+  },
 ];
 
 // ─── OCI Service instances (lazy-initialised) ─────────────────────────────────
@@ -689,19 +824,21 @@ let _identityExtService: IdentityExtendedService;
 let _networkExtService: NetworkExtendedService;
 let _securityService: SecurityService;
 let _observabilityService: ObservabilityService;
+let _resourceManagerService: ResourceManagerService;
 
 function getServices() {
   if (!_computeService) {
-    _computeService        = new ComputeService();
-    _networkService        = new NetworkService();
-    _blockStorageService   = new BlockStorageService();
-    _objectStorageService  = new ObjectStorageService();
-    _databaseService       = new DatabaseService();
-    _identityService       = new IdentityService();
-    _identityExtService    = new IdentityExtendedService();
-    _networkExtService     = new NetworkExtendedService();
-    _securityService       = new SecurityService();
-    _observabilityService  = new ObservabilityService();
+    _computeService          = new ComputeService();
+    _networkService          = new NetworkService();
+    _blockStorageService     = new BlockStorageService();
+    _objectStorageService    = new ObjectStorageService();
+    _databaseService         = new DatabaseService();
+    _identityService         = new IdentityService();
+    _identityExtService      = new IdentityExtendedService();
+    _networkExtService       = new NetworkExtendedService();
+    _securityService         = new SecurityService();
+    _observabilityService    = new ObservabilityService();
+    _resourceManagerService  = new ResourceManagerService();
   }
   return {
     cs:  _computeService,
@@ -714,6 +851,7 @@ function getServices() {
     nxs: _networkExtService,
     sec: _securityService,
     obs: _observabilityService,
+    rm:  _resourceManagerService,
   };
 }
 
@@ -722,7 +860,7 @@ function getServices() {
 type Args = Record<string, unknown>;
 
 async function executeOCITool(name: string, a: Args): Promise<unknown> {
-  const { cs, ns, bs, os, ds, is, ixs, nxs, sec, obs } = getServices();
+  const { cs, ns, bs, os, ds, is, ixs, nxs, sec, obs, rm } = getServices();
 
   switch (name) {
     /* ── COMPUTE ── */
@@ -1142,6 +1280,65 @@ async function executeOCITool(name: string, a: Args): Promise<unknown> {
         id: sc.id, displayName: sc.displayName, lifecycleState: sc.lifecycleState,
         timeCreated: sc.timeCreated ? new Date(sc.timeCreated).toISOString() : null,
       }));
+
+    // ── Resource Manager ─────────────────────────────────────────────────────
+    case 'resource_manager__list_stacks':
+      return rm.listStacks(a.compartment_id as string | undefined);
+
+    case 'resource_manager__get_stack':
+      return rm.getStack(a.stack_id as string);
+
+    case 'resource_manager__create_stack':
+      return rm.createStack({
+        displayName:            a.display_name as string,
+        description:            a.description as string | undefined,
+        terraformVersion:       a.terraform_version as string | undefined,
+        variables:              a.variables as Record<string, string> | undefined,
+        objectStorageBucket:    a.object_storage_bucket as string | undefined,
+        objectStorageNamespace: a.object_storage_namespace as string | undefined,
+        objectStorageRegion:    a.object_storage_region as string | undefined,
+        zipContentBase64:       a.zip_content_base64 as string | undefined,
+      });
+
+    case 'resource_manager__update_stack':
+      return rm.updateStack(a.stack_id as string, {
+        displayName:      a.display_name as string | undefined,
+        description:      a.description as string | undefined,
+        variables:        a.variables as Record<string, string> | undefined,
+        terraformVersion: a.terraform_version as string | undefined,
+      });
+
+    case 'resource_manager__delete_stack':
+      return rm.deleteStack(a.stack_id as string);
+
+    case 'resource_manager__get_stack_tf_state':
+      return rm.getStackTfState(a.stack_id as string);
+
+    case 'resource_manager__list_jobs':
+      return rm.listJobs(
+        a.stack_id as string | undefined,
+        a.compartment_id as string | undefined,
+      );
+
+    case 'resource_manager__get_job':
+      return rm.getJob(a.job_id as string);
+
+    case 'resource_manager__get_job_logs':
+      return rm.getJobLogs(a.job_id as string, a.max_lines as number | undefined);
+
+    case 'resource_manager__create_job':
+      return rm.createJob({
+        stackId:      a.stack_id as string,
+        operation:    a.operation as string,
+        displayName:  a.display_name as string | undefined,
+        autoApproved: a.auto_approved as boolean | undefined,
+      });
+
+    case 'resource_manager__cancel_job':
+      return rm.cancelJob(a.job_id as string);
+
+    case 'resource_manager__list_terraform_versions':
+      return rm.listTerraformVersions();
 
     default:
       throw new Error(`Unknown OCI tool: ${name}`);
