@@ -23,6 +23,71 @@ function isWriteTool(name: string): boolean {
   return WRITE_VERBS.some(v => lower.includes(v));
 }
 
+// ─── Rate-limit diagnostics ───────────────────────────────────────────────────
+// Anthropic returns rich rate-limit data in response headers.  Extract it so
+// the user can see exactly which limit was hit and when it will reset.
+
+function buildRateLimitMessage(error: Anthropic.RateLimitError): string {
+  // Helper: works whether SDK gives us a Fetch Headers object or a plain dict.
+  const h = error.headers as Record<string, string> | { get(k: string): string | null } | undefined;
+  const get = (name: string): string | undefined => {
+    if (!h) return undefined;
+    if (typeof (h as { get?: unknown }).get === 'function') {
+      return (h as { get(k: string): string | null }).get(name) ?? undefined;
+    }
+    return (h as Record<string, string>)[name];
+  };
+
+  // The API error body usually names the specific limit type (tokens, requests…)
+  const apiMessage = error.message ?? '';
+
+  // Pull structured header values
+  const retryAfter       = get('retry-after');
+  const reqLimit         = get('anthropic-ratelimit-requests-limit');
+  const reqRemaining     = get('anthropic-ratelimit-requests-remaining');
+  const reqReset         = get('anthropic-ratelimit-requests-reset');
+  const tokLimit         = get('anthropic-ratelimit-tokens-limit');
+  const tokRemaining     = get('anthropic-ratelimit-tokens-remaining');
+  const tokReset         = get('anthropic-ratelimit-tokens-reset');
+  const inTokLimit       = get('anthropic-ratelimit-input-tokens-limit');
+  const inTokRemaining   = get('anthropic-ratelimit-input-tokens-remaining');
+  const outTokLimit      = get('anthropic-ratelimit-output-tokens-limit');
+  const outTokRemaining  = get('anthropic-ratelimit-output-tokens-remaining');
+
+  const lines: string[] = ['⚠️ Anthropic rate limit reached.'];
+
+  // Show the API's own description (e.g. "Number of request tokens has exceeded
+  // your per-minute rate limit") — it's the most precise identification.
+  if (apiMessage) {
+    // Strip the long URL reference Anthropic appends; we'll link docs separately.
+    const clean = apiMessage.replace(/\s*\(https?:\/\/[^)]+\)/g, '').replace(/\s*see the response headers.*$/i, '').trim();
+    if (clean) lines.push(clean + '.');
+  }
+
+  // Structured per-limit stats
+  if (reqLimit) {
+    lines.push(`• Requests / min : ${reqRemaining ?? '?'} remaining of ${reqLimit}`);
+    if (reqReset) lines.push(`  Resets at ${new Date(reqReset).toLocaleTimeString()}`);
+  }
+  if (tokLimit) {
+    lines.push(`• Tokens / min   : ${tokRemaining ?? '?'} remaining of ${tokLimit}`);
+    if (tokReset) lines.push(`  Resets at ${new Date(tokReset).toLocaleTimeString()}`);
+  }
+  if (inTokLimit)  lines.push(`• Input tokens / min  : ${inTokRemaining ?? '?'} remaining of ${inTokLimit}`);
+  if (outTokLimit) lines.push(`• Output tokens / min : ${outTokRemaining ?? '?'} remaining of ${outTokLimit}`);
+
+  if (retryAfter) {
+    lines.push(`Retry after: ${retryAfter} second(s).`);
+  } else if (!reqLimit && !tokLimit) {
+    // No header data available — fall back to generic advice.
+    lines.push('Please wait a moment and try again.');
+  }
+
+  lines.push('See https://docs.anthropic.com/en/api/rate-limits for tier details.');
+
+  return lines.join('\n');
+}
+
 // ─── PendingTool ──────────────────────────────────────────────────────────────
 // Serialised into the 'done' event when the agentic loop pauses before a write
 // operation.  The client stores it and sends it back on the next request so the
@@ -262,7 +327,7 @@ export async function handleChat(
     if (error instanceof Anthropic.AuthenticationError) {
       msg = 'Invalid Anthropic API key. Check ANTHROPIC_API_KEY in your environment.';
     } else if (error instanceof Anthropic.RateLimitError) {
-      msg = 'Rate limit reached. Please wait a moment and try again.';
+      msg = buildRateLimitMessage(error);
     } else if (error instanceof Anthropic.APIError) {
       msg = `Claude API error (HTTP ${error.status}): ${error.message}`;
     } else if (error instanceof Error) {
