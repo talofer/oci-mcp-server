@@ -14,6 +14,18 @@ import {
   DatabaseService,
   IdentityService,
 } from '../oci/services';
+import {
+  IdentityExtendedService,
+} from '../oci/services/identity';
+import {
+  NetworkExtendedService,
+} from '../oci/services/network-extended';
+import {
+  SecurityService,
+} from '../oci/services/security';
+import {
+  ObservabilityService,
+} from '../oci/services/observability';
 import logger from '../utils/logger';
 
 // ─── Tool definitions exposed via MCP ────────────────────────────────────────
@@ -246,6 +258,423 @@ const MCP_TOOLS: MCPTool[] = [
       required: ['database_id'],
     },
   },
+
+  /* ── IDENTITY ── */
+  {
+    name: 'identity__list_compartments',
+    description: 'List compartments.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        compartment_id: { type: 'string', description: 'Compartment OCID to list from. Defaults to configured compartment.' },
+      },
+    },
+  },
+  {
+    name: 'identity__create_compartment',
+    description: 'Create a compartment. Only call after user confirmation.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        name: { type: 'string' },
+        description: { type: 'string' },
+        parent_compartment_id: { type: 'string' },
+      },
+      required: ['name', 'description'],
+    },
+  },
+  {
+    name: 'identity__list_groups',
+    description: 'List IAM groups (tenancy-scoped).',
+    inputSchema: { type: 'object', properties: {} },
+  },
+  {
+    name: 'identity__create_group',
+    description: 'Create an IAM group. Only call after user confirmation.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        name: { type: 'string' },
+        description: { type: 'string' },
+      },
+      required: ['name', 'description'],
+    },
+  },
+  {
+    name: 'identity__list_policies',
+    description: 'List IAM policies.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        compartment_id: { type: 'string' },
+      },
+    },
+  },
+  {
+    name: 'identity__create_policy',
+    description: 'Create an IAM policy. Only call after user confirmation.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        name: { type: 'string' },
+        description: { type: 'string' },
+        statements: { type: 'array', items: { type: 'string' } },
+        compartment_id: { type: 'string' },
+      },
+      required: ['name', 'description', 'statements'],
+    },
+  },
+  {
+    name: 'identity__list_dynamic_groups',
+    description: 'List dynamic groups (tenancy-scoped).',
+    inputSchema: { type: 'object', properties: {} },
+  },
+
+  /* ── NETWORK EXTENDED ── */
+  {
+    name: 'network__list_internet_gateways',
+    description: 'List internet gateways.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        vcn_id: { type: 'string' },
+      },
+    },
+  },
+  {
+    name: 'network__create_internet_gateway',
+    description: 'Create an internet gateway. Only call after user confirmation.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        display_name: { type: 'string' },
+        vcn_id: { type: 'string' },
+        is_enabled: { type: 'boolean' },
+      },
+      required: ['display_name', 'vcn_id'],
+    },
+  },
+  {
+    name: 'network__list_nat_gateways',
+    description: 'List NAT gateways.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        vcn_id: { type: 'string' },
+      },
+    },
+  },
+  {
+    name: 'network__create_nat_gateway',
+    description: 'Create a NAT gateway. Only call after user confirmation.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        display_name: { type: 'string' },
+        vcn_id: { type: 'string' },
+      },
+      required: ['display_name', 'vcn_id'],
+    },
+  },
+  {
+    name: 'network__list_service_gateways',
+    description: 'List service gateways.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        vcn_id: { type: 'string' },
+      },
+    },
+  },
+  {
+    name: 'network__create_service_gateway',
+    description: 'Create a service gateway. Enables all OCI services. Only call after user confirmation.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        display_name: { type: 'string' },
+        vcn_id: { type: 'string' },
+      },
+      required: ['display_name', 'vcn_id'],
+    },
+  },
+  {
+    name: 'network__list_route_tables',
+    description: 'List route tables.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        vcn_id: { type: 'string' },
+      },
+    },
+  },
+  {
+    name: 'network__create_route_table',
+    description: 'Create a route table. Only call after user confirmation.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        display_name: { type: 'string' },
+        vcn_id: { type: 'string' },
+        route_rules: {
+          type: 'array',
+          items: {
+            type: 'object',
+            properties: {
+              destination: { type: 'string' },
+              network_entity_id: { type: 'string' },
+            },
+          },
+        },
+      },
+      required: ['display_name', 'vcn_id'],
+    },
+  },
+  {
+    name: 'network__list_network_security_groups',
+    description: 'List network security groups.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        vcn_id: { type: 'string' },
+      },
+    },
+  },
+  {
+    name: 'network__create_network_security_group',
+    description: 'Create a network security group. Only call after user confirmation.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        display_name: { type: 'string' },
+        vcn_id: { type: 'string' },
+      },
+      required: ['display_name', 'vcn_id'],
+    },
+  },
+  {
+    name: 'network__list_drgs',
+    description: 'List Dynamic Routing Gateways.',
+    inputSchema: { type: 'object', properties: {} },
+  },
+  {
+    name: 'network__create_drg',
+    description: 'Create a Dynamic Routing Gateway. Only call after user confirmation.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        display_name: { type: 'string' },
+      },
+      required: ['display_name'],
+    },
+  },
+
+  /* ── SECURITY ── */
+  {
+    name: 'security__get_cloud_guard_configuration',
+    description: 'Get Cloud Guard status.',
+    inputSchema: { type: 'object', properties: {} },
+  },
+  {
+    name: 'security__enable_cloud_guard',
+    description: 'Enable Cloud Guard at tenancy level. Only call after user confirmation.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        status: { type: 'string', enum: ['ENABLED', 'DISABLED'] },
+      },
+      required: ['status'],
+    },
+  },
+  {
+    name: 'security__list_cloud_guard_targets',
+    description: 'List Cloud Guard targets.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        compartment_id: { type: 'string' },
+      },
+    },
+  },
+  {
+    name: 'security__create_cloud_guard_target',
+    description: 'Create a Cloud Guard target. Only call after user confirmation.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        display_name: { type: 'string' },
+        target_resource_id: { type: 'string', description: 'OCID of compartment to target' },
+      },
+      required: ['display_name', 'target_resource_id'],
+    },
+  },
+  {
+    name: 'security__list_vaults',
+    description: 'List vaults.',
+    inputSchema: { type: 'object', properties: {} },
+  },
+  {
+    name: 'security__create_vault',
+    description: 'Create a vault. Only call after user confirmation.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        display_name: { type: 'string' },
+        vault_type: { type: 'string', enum: ['DEFAULT', 'VIRTUAL_PRIVATE'] },
+      },
+      required: ['display_name'],
+    },
+  },
+  {
+    name: 'security__list_bastions',
+    description: 'List bastions.',
+    inputSchema: { type: 'object', properties: {} },
+  },
+  {
+    name: 'security__create_bastion',
+    description: 'Create a bastion. Only call after user confirmation.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        name: { type: 'string' },
+        target_subnet_id: { type: 'string' },
+        client_cidr_block_allow_list: { type: 'array', items: { type: 'string' } },
+      },
+      required: ['name', 'target_subnet_id', 'client_cidr_block_allow_list'],
+    },
+  },
+
+  /* ── OBSERVABILITY ── */
+  {
+    name: 'logging__list_log_groups',
+    description: 'List log groups.',
+    inputSchema: { type: 'object', properties: {} },
+  },
+  {
+    name: 'logging__create_log_group',
+    description: 'Create a log group. Only call after user confirmation.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        display_name: { type: 'string' },
+        description: { type: 'string' },
+      },
+      required: ['display_name'],
+    },
+  },
+  {
+    name: 'logging__list_logs',
+    description: 'List logs in a log group.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        log_group_id: { type: 'string' },
+      },
+      required: ['log_group_id'],
+    },
+  },
+  {
+    name: 'logging__create_log',
+    description: 'Create a log in a log group. Only call after user confirmation.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        log_group_id: { type: 'string' },
+        display_name: { type: 'string' },
+        log_type: { type: 'string', enum: ['CUSTOM', 'SERVICE'] },
+      },
+      required: ['log_group_id', 'display_name'],
+    },
+  },
+  {
+    name: 'monitoring__list_alarms',
+    description: 'List monitoring alarms.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        compartment_id: { type: 'string' },
+      },
+    },
+  },
+  {
+    name: 'monitoring__create_alarm',
+    description: 'Create a monitoring alarm. Only call after user confirmation.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        display_name: { type: 'string' },
+        namespace: { type: 'string' },
+        query: { type: 'string' },
+        severity: { type: 'string', enum: ['CRITICAL', 'ERROR', 'WARNING', 'INFO'] },
+        destinations: { type: 'array', items: { type: 'string' }, description: 'Notification topic OCIDs' },
+      },
+      required: ['display_name', 'namespace', 'query', 'severity', 'destinations'],
+    },
+  },
+  {
+    name: 'notifications__list_topics',
+    description: 'List notification topics.',
+    inputSchema: { type: 'object', properties: {} },
+  },
+  {
+    name: 'notifications__create_topic',
+    description: 'Create a notification topic. Only call after user confirmation.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        name: { type: 'string' },
+        description: { type: 'string' },
+      },
+      required: ['name'],
+    },
+  },
+  {
+    name: 'notifications__create_subscription',
+    description: 'Create a notification subscription. Only call after user confirmation.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        topic_id: { type: 'string' },
+        protocol: { type: 'string', enum: ['EMAIL', 'HTTPS', 'PAGERDUTY', 'SLACK', 'SMS', 'ORACLE_FUNCTIONS'] },
+        endpoint: { type: 'string' },
+      },
+      required: ['topic_id', 'protocol', 'endpoint'],
+    },
+  },
+  {
+    name: 'events__list_rules',
+    description: 'List event rules.',
+    inputSchema: { type: 'object', properties: {} },
+  },
+  {
+    name: 'events__create_rule',
+    description: 'Create an event rule. Only call after user confirmation.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        display_name: { type: 'string' },
+        description: { type: 'string' },
+        condition: { type: 'string', description: 'JSON filter condition' },
+        actions: {
+          type: 'array',
+          items: {
+            type: 'object',
+            properties: {
+              action_type: { type: 'string' },
+              is_enabled: { type: 'boolean' },
+              topic_id: { type: 'string' },
+            },
+          },
+        },
+      },
+      required: ['display_name', 'description', 'condition', 'actions'],
+    },
+  },
+  {
+    name: 'sch__list_service_connectors',
+    description: 'List service connectors.',
+    inputSchema: { type: 'object', properties: {} },
+  },
 ];
 
 // ─── OCI Service instances (lazy-initialised) ─────────────────────────────────
@@ -256,6 +685,10 @@ let _blockStorageService: BlockStorageService;
 let _objectStorageService: ObjectStorageService;
 let _databaseService: DatabaseService;
 let _identityService: IdentityService;
+let _identityExtService: IdentityExtendedService;
+let _networkExtService: NetworkExtendedService;
+let _securityService: SecurityService;
+let _observabilityService: ObservabilityService;
 
 function getServices() {
   if (!_computeService) {
@@ -265,14 +698,22 @@ function getServices() {
     _objectStorageService  = new ObjectStorageService();
     _databaseService       = new DatabaseService();
     _identityService       = new IdentityService();
+    _identityExtService    = new IdentityExtendedService();
+    _networkExtService     = new NetworkExtendedService();
+    _securityService       = new SecurityService();
+    _observabilityService  = new ObservabilityService();
   }
   return {
-    cs: _computeService,
-    ns: _networkService,
-    bs: _blockStorageService,
-    os: _objectStorageService,
-    ds: _databaseService,
-    is: _identityService,
+    cs:  _computeService,
+    ns:  _networkService,
+    bs:  _blockStorageService,
+    os:  _objectStorageService,
+    ds:  _databaseService,
+    is:  _identityService,
+    ixs: _identityExtService,
+    nxs: _networkExtService,
+    sec: _securityService,
+    obs: _observabilityService,
   };
 }
 
@@ -281,7 +722,7 @@ function getServices() {
 type Args = Record<string, unknown>;
 
 async function executeOCITool(name: string, a: Args): Promise<unknown> {
-  const { cs, ns, bs, os, ds, is } = getServices();
+  const { cs, ns, bs, os, ds, is, ixs, nxs, sec, obs } = getServices();
 
   switch (name) {
     /* ── COMPUTE ── */
@@ -438,6 +879,269 @@ async function executeOCITool(name: string, a: Args): Promise<unknown> {
 
     case 'database__delete_autonomous_database':
       return await ds.deleteAutonomousDatabase(a.database_id as string);
+
+    /* ── IDENTITY ── */
+    case 'identity__list_compartments':
+      return (await ixs.listCompartments(a.compartment_id as string | undefined)).map(c => ({
+        id: c.id, name: c.name, description: c.description,
+        lifecycleState: c.lifecycleState, timeCreated: c.timeCreated ? new Date(c.timeCreated).toISOString() : null,
+      }));
+
+    case 'identity__create_compartment': {
+      const c = await ixs.createCompartment(
+        a.name as string, a.description as string, a.parent_compartment_id as string | undefined,
+      );
+      return { id: c.id, name: c.name, description: c.description, lifecycleState: c.lifecycleState };
+    }
+
+    case 'identity__list_groups':
+      return (await ixs.listGroups()).map(g => ({
+        id: g.id, name: g.name, description: g.description, lifecycleState: g.lifecycleState,
+        timeCreated: g.timeCreated ? new Date(g.timeCreated).toISOString() : null,
+      }));
+
+    case 'identity__create_group': {
+      const g = await ixs.createGroup(a.name as string, a.description as string);
+      return { id: g.id, name: g.name, description: g.description, lifecycleState: g.lifecycleState };
+    }
+
+    case 'identity__list_policies':
+      return (await ixs.listPolicies(a.compartment_id as string | undefined)).map(p => ({
+        id: p.id, name: p.name, description: p.description,
+        statements: p.statements, lifecycleState: p.lifecycleState,
+        timeCreated: p.timeCreated ? new Date(p.timeCreated).toISOString() : null,
+      }));
+
+    case 'identity__create_policy': {
+      const p = await ixs.createPolicy(
+        a.name as string, a.statements as string[], a.description as string,
+        a.compartment_id as string | undefined,
+      );
+      return { id: p.id, name: p.name, description: p.description, statements: p.statements, lifecycleState: p.lifecycleState };
+    }
+
+    case 'identity__list_dynamic_groups':
+      return (await ixs.listDynamicGroups()).map(dg => ({
+        id: dg.id, name: dg.name, description: dg.description,
+        matchingRule: dg.matchingRule, lifecycleState: dg.lifecycleState,
+        timeCreated: dg.timeCreated ? new Date(dg.timeCreated).toISOString() : null,
+      }));
+
+    /* ── NETWORK EXTENDED ── */
+    case 'network__list_internet_gateways':
+      return (await nxs.listInternetGateways(a.vcn_id as string | undefined)).map(ig => ({
+        id: ig.id, displayName: ig.displayName, isEnabled: ig.isEnabled,
+        vcnId: ig.vcnId, lifecycleState: ig.lifecycleState,
+        timeCreated: ig.timeCreated ? new Date(ig.timeCreated).toISOString() : null,
+      }));
+
+    case 'network__create_internet_gateway': {
+      const ig = await nxs.createInternetGateway(
+        a.display_name as string, a.vcn_id as string, (a.is_enabled as boolean | undefined) ?? true,
+      );
+      return { id: ig.id, displayName: ig.displayName, isEnabled: ig.isEnabled, vcnId: ig.vcnId, lifecycleState: ig.lifecycleState };
+    }
+
+    case 'network__list_nat_gateways':
+      return (await nxs.listNatGateways(a.vcn_id as string | undefined)).map(ng => ({
+        id: ng.id, displayName: ng.displayName, blockTraffic: ng.blockTraffic,
+        vcnId: ng.vcnId, lifecycleState: ng.lifecycleState,
+        timeCreated: ng.timeCreated ? new Date(ng.timeCreated).toISOString() : null,
+      }));
+
+    case 'network__create_nat_gateway': {
+      const ng = await nxs.createNatGateway(a.display_name as string, a.vcn_id as string);
+      return { id: ng.id, displayName: ng.displayName, vcnId: ng.vcnId, lifecycleState: ng.lifecycleState };
+    }
+
+    case 'network__list_service_gateways':
+      return (await nxs.listServiceGateways(a.vcn_id as string | undefined)).map(sg => ({
+        id: sg.id, displayName: sg.displayName, vcnId: sg.vcnId,
+        lifecycleState: sg.lifecycleState,
+        timeCreated: sg.timeCreated ? new Date(sg.timeCreated).toISOString() : null,
+      }));
+
+    case 'network__create_service_gateway': {
+      const sg = await nxs.createServiceGateway(a.display_name as string, a.vcn_id as string);
+      return { id: sg.id, displayName: sg.displayName, vcnId: sg.vcnId, lifecycleState: sg.lifecycleState };
+    }
+
+    case 'network__list_route_tables':
+      return (await nxs.listRouteTables(a.vcn_id as string | undefined)).map(rt => ({
+        id: rt.id, displayName: rt.displayName, vcnId: rt.vcnId,
+        lifecycleState: rt.lifecycleState,
+        timeCreated: rt.timeCreated ? new Date(rt.timeCreated).toISOString() : null,
+      }));
+
+    case 'network__create_route_table': {
+      const rawRules = a.route_rules as Array<{ destination: string; network_entity_id: string }> | undefined;
+      const mappedRules = rawRules?.map(r => ({ destination: r.destination, networkEntityId: r.network_entity_id }));
+      const rt = await nxs.createRouteTable(a.display_name as string, a.vcn_id as string, mappedRules);
+      return { id: rt.id, displayName: rt.displayName, vcnId: rt.vcnId, lifecycleState: rt.lifecycleState };
+    }
+
+    case 'network__list_network_security_groups':
+      return (await nxs.listNetworkSecurityGroups(a.vcn_id as string | undefined)).map(nsg => ({
+        id: nsg.id, displayName: nsg.displayName, vcnId: nsg.vcnId,
+        lifecycleState: nsg.lifecycleState,
+        timeCreated: nsg.timeCreated ? new Date(nsg.timeCreated).toISOString() : null,
+      }));
+
+    case 'network__create_network_security_group': {
+      const nsg = await nxs.createNetworkSecurityGroup(a.display_name as string, a.vcn_id as string);
+      return { id: nsg.id, displayName: nsg.displayName, vcnId: nsg.vcnId, lifecycleState: nsg.lifecycleState };
+    }
+
+    case 'network__list_drgs':
+      return (await nxs.listDrgs()).map(drg => ({
+        id: drg.id, displayName: drg.displayName, lifecycleState: drg.lifecycleState,
+        timeCreated: drg.timeCreated ? new Date(drg.timeCreated).toISOString() : null,
+      }));
+
+    case 'network__create_drg': {
+      const drg = await nxs.createDrg(a.display_name as string);
+      return { id: drg.id, displayName: drg.displayName, lifecycleState: drg.lifecycleState };
+    }
+
+    /* ── SECURITY ── */
+    case 'security__get_cloud_guard_configuration': {
+      const cfg = await sec.getCloudGuardConfiguration();
+      return { status: cfg.status, selfManageResources: cfg.selfManageResources };
+    }
+
+    case 'security__enable_cloud_guard': {
+      const cfg = await sec.enableCloudGuard(a.status as 'ENABLED' | 'DISABLED');
+      return { status: cfg.status };
+    }
+
+    case 'security__list_cloud_guard_targets':
+      return (await sec.listCloudGuardTargets(a.compartment_id as string | undefined)).map(t => ({
+        id: t.id, displayName: t.displayName, lifecycleState: t.lifecycleState,
+        targetResourceId: t.targetResourceId, targetResourceType: t.targetResourceType,
+        timeCreated: t.timeCreated ? new Date(t.timeCreated).toISOString() : null,
+      }));
+
+    case 'security__create_cloud_guard_target': {
+      const t = await sec.createCloudGuardTarget(
+        a.display_name as string, a.target_resource_id as string,
+      );
+      return { id: t.id, displayName: t.displayName, lifecycleState: t.lifecycleState, targetResourceId: t.targetResourceId };
+    }
+
+    case 'security__list_vaults':
+      return (await sec.listVaults()).map(v => ({
+        id: v.id, displayName: v.displayName, vaultType: v.vaultType,
+        lifecycleState: v.lifecycleState,
+        timeCreated: v.timeCreated ? new Date(v.timeCreated).toISOString() : null,
+      }));
+
+    case 'security__create_vault': {
+      const v = await sec.createVault(
+        a.display_name as string, (a.vault_type as 'DEFAULT' | 'VIRTUAL_PRIVATE' | undefined) ?? 'DEFAULT',
+      );
+      return { id: v.id, displayName: v.displayName, vaultType: v.vaultType, lifecycleState: v.lifecycleState };
+    }
+
+    case 'security__list_bastions':
+      return (await sec.listBastions()).map(b => ({
+        id: b.id, name: b.name, lifecycleState: b.lifecycleState,
+        targetSubnetId: b.targetSubnetId,
+        timeCreated: b.timeCreated ? new Date(b.timeCreated).toISOString() : null,
+      }));
+
+    case 'security__create_bastion': {
+      const b = await sec.createBastion(
+        a.name as string, a.target_subnet_id as string, a.client_cidr_block_allow_list as string[],
+      );
+      return { id: b.id, name: b.name, lifecycleState: b.lifecycleState, targetSubnetId: b.targetSubnetId };
+    }
+
+    /* ── OBSERVABILITY ── */
+    case 'logging__list_log_groups':
+      return (await obs.listLogGroups()).map(lg => ({
+        id: lg.id, displayName: lg.displayName, description: lg.description,
+        lifecycleState: lg.lifecycleState,
+        timeCreated: lg.timeCreated ? new Date(lg.timeCreated).toISOString() : null,
+      }));
+
+    case 'logging__create_log_group': {
+      const lg = await obs.createLogGroup(a.display_name as string, a.description as string | undefined);
+      return { id: lg.id, displayName: lg.displayName, lifecycleState: lg.lifecycleState };
+    }
+
+    case 'logging__list_logs':
+      return (await obs.listLogs(a.log_group_id as string)).map(l => ({
+        id: l.id, displayName: l.displayName, logType: l.logType,
+        lifecycleState: l.lifecycleState,
+        timeCreated: l.timeCreated ? new Date(l.timeCreated).toISOString() : null,
+      }));
+
+    case 'logging__create_log': {
+      const l = await obs.createLog(
+        a.log_group_id as string, a.display_name as string,
+        (a.log_type as 'CUSTOM' | 'SERVICE' | undefined) ?? 'CUSTOM',
+      );
+      return { id: l.id, displayName: l.displayName, logType: l.logType, lifecycleState: l.lifecycleState };
+    }
+
+    case 'monitoring__list_alarms':
+      return (await obs.listAlarms(a.compartment_id as string | undefined)).map(al => ({
+        id: al.id, displayName: al.displayName, namespace: al.namespace,
+        query: al.query, severity: al.severity, lifecycleState: al.lifecycleState,
+      }));
+
+    case 'monitoring__create_alarm': {
+      const al = await obs.createAlarm(
+        a.display_name as string, a.namespace as string, a.query as string,
+        a.severity as string, a.destinations as string[],
+      );
+      return { id: al.id, displayName: al.displayName, namespace: al.namespace, severity: al.severity, lifecycleState: al.lifecycleState };
+    }
+
+    case 'notifications__list_topics':
+      return (await obs.listTopics()).map(t => ({
+        topicId: t.topicId, name: t.name, description: t.description,
+        lifecycleState: t.lifecycleState,
+        timeCreated: t.timeCreated ? new Date(t.timeCreated).toISOString() : null,
+      }));
+
+    case 'notifications__create_topic': {
+      const t = await obs.createTopic(a.name as string, a.description as string | undefined);
+      return { topicId: t.topicId, name: t.name, lifecycleState: t.lifecycleState };
+    }
+
+    case 'notifications__create_subscription': {
+      const sub = await obs.createSubscription(
+        a.topic_id as string, a.protocol as string, a.endpoint as string,
+      );
+      return { id: sub.id, topicId: sub.topicId, protocol: sub.protocol, endpoint: sub.endpoint, lifecycleState: sub.lifecycleState };
+    }
+
+    case 'events__list_rules':
+      return (await obs.listRules()).map(r => ({
+        id: r.id, displayName: r.displayName, description: r.description,
+        condition: r.condition, lifecycleState: r.lifecycleState,
+        timeCreated: r.timeCreated ? new Date(r.timeCreated).toISOString() : null,
+      }));
+
+    case 'events__create_rule': {
+      const rawActions = a.actions as Array<{ action_type: string; is_enabled: boolean; topic_id?: string }>;
+      const mappedActions = rawActions.map(ac => ({
+        actionType: ac.action_type,
+        isEnabled: ac.is_enabled,
+        ...(ac.topic_id !== undefined ? { topicId: ac.topic_id } : {}),
+      }));
+      const r = await obs.createRule(
+        a.display_name as string, a.description as string, a.condition as string, mappedActions,
+      );
+      return { id: r.id, displayName: r.displayName, condition: r.condition, lifecycleState: r.lifecycleState };
+    }
+
+    case 'sch__list_service_connectors':
+      return (await obs.listServiceConnectors()).map(sc => ({
+        id: sc.id, displayName: sc.displayName, lifecycleState: sc.lifecycleState,
+        timeCreated: sc.timeCreated ? new Date(sc.timeCreated).toISOString() : null,
+      }));
 
     default:
       throw new Error(`Unknown OCI tool: ${name}`);

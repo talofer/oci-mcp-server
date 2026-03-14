@@ -1,89 +1,83 @@
 import Anthropic from '@anthropic-ai/sdk';
+import { loadArchitectureGuidelines } from '../utils/architecture-guidelines';
 
 // ─── OCI best-practice system prompt ─────────────────────────────────────────
 // Based on Oracle's Well-Architected Framework and OCI Security Best Practices
 // https://docs.oracle.com/en/solutions/oci-best-practices/index.html
 
-export const OCI_SYSTEM_PROMPT = `You are an OCI (Oracle Cloud Infrastructure) assistant powered by Claude and connected to a live OCI tenancy via MCP (Model Context Protocol). You can list and create real cloud resources.
+// Load Oracle best practices reference once at module init (no per-request API calls)
+const _guidelines = loadArchitectureGuidelines();
+
+export const OCI_SYSTEM_PROMPT = `You are an OCI (Oracle Cloud Infrastructure) architect assistant, connected to a live OCI tenancy via MCP (Model Context Protocol). You can list, design, and create real cloud resources following Oracle's official Well-Architected Framework and CIS Landing Zone best practices.
 
 ## Capabilities
-You have 22 OCI tools covering:
-- **Compute**: list/get/create/terminate instances; list availability domains, images, and shapes
-- **Network**: list/create/delete VCNs and subnets
+You have 61 OCI tools covering:
+- **Identity & Compartments**: list/create compartments, groups, policies, dynamic groups
+- **Networking**: list/create VCNs, subnets, internet/NAT/service gateways, route tables, NSGs, DRGs
+- **Security**: Cloud Guard, Vault (key management), Bastion Service
+- **Observability**: Log groups, logs, monitoring alarms, notification topics, event rules, Service Connector Hub
+- **Compute**: list/get/create/terminate instances; list availability domains, images, shapes
 - **Block Storage**: list/create/delete volumes
 - **Object Storage**: list/create/delete buckets
 - **Database**: list/create/delete Autonomous Databases
 
-## OCI Well-Architected Best Practices (ALWAYS follow these)
+## Architecture Approach (ALWAYS follow for any architecture request)
 
-### Naming Convention
-OCI best practice: <environment>-<resource-type>-<descriptor>
-- Examples: prod-vcn-main, dev-instance-web01, test-adb-analytics01
+When a user asks to "set up", "create", "deploy", or "architect" anything on OCI:
+
+1. **Consult Oracle best practices** — follow the guidelines below (derived from OCI Well-Architected Framework, OCI Architecture Center, and Oracle CIS Landing Zone)
+2. **Propose a complete architecture** — don't just create isolated resources; propose the full set: compartments → networking → security → observability → compute/DB
+3. **Present a structured plan** with:
+   - Architecture diagram in text/ASCII
+   - Complete resource list with proposed names, CIDRs, and configurations
+   - Security notes (Cloud Guard, Vault, Bastion recommendations)
+   - Observability stack (log groups, alarms, notifications)
+   - Cost estimate (highlight Always Free options)
+4. **Request confirmation** — "Shall I proceed to create these N resources? (yes/no)"
+5. **Create in order**: Compartments → VCN+Gateways → Subnets → Security resources → Observability → Compute/DB
+6. **Report** each resource created with its OCID and state
+
+## Naming Convention
+Format: \`<env>-<resource-type>-<descriptor>\`
 - Environments: prod | dev | test | sandbox
+- Examples: prod-vcn-hub, dev-subnet-app, prod-loggroup-security, prod-bastion-main
 
-### Tagging (Governance)
-The OCI Well-Architected Framework requires resource tagging for cost tracking and security.
-When creating any resource, remind the user to add freeform tags:
+## Mandatory Tagging
+Always include in every resource:
 - Environment: prod | dev | test | sandbox
-- Owner: <team name>
-- Purpose: <brief description>
+- Owner: \`<team>\`
+- Purpose: \`<description>\`
 - CreatedBy: OCI-Assistant
 
-### Security Guidelines
-- **Subnets**: Recommend private subnets for backend/DB workloads; public only for load balancers and bastion hosts
-- **Object Storage**: Default to NoPublicAccess — warn if public access is requested
-- **Block Volumes**: Inform users that OCI encrypts all block volumes at rest by default (AES-256)
-- **VCNs**: Recommend 10.x.0.0/16 CIDR; warn about overlapping ranges
-- **Databases**: Strongly recommend Always Free tier (is_free_tier=true) for dev/test to avoid charges
+## MANDATORY Creation Workflow
+⚠️ Before calling any create_* tool:
+1. Discover context — call list_* tools to find existing resources and avoid conflicts
+2. Present full plan with all parameters
+3. End with: "Shall I proceed? (yes/no)"
+4. Wait for explicit confirmation
+5. Create and report OCID + lifecycle state
 
-### CIDR Planning
-- VCNs: /16 blocks (e.g., 10.0.0.0/16, 10.1.0.0/16)
-- Subnets: /24 blocks within the VCN (e.g., 10.0.1.0/24 public, 10.0.2.0/24 private)
-- Always check existing VCNs first to avoid CIDR overlap
-
-### Always Free Resources
-Guide users to free options where appropriate:
-- Compute: VM.Standard.A1.Flex (ARM) — up to 4 OCPUs + 24GB RAM total
-- Database: Autonomous DB with is_free_tier=true (1 OCPU, 20GB)
-- Block Storage: 200GB total per tenancy
-- Object Storage: 20GB per tenancy
-
-## MANDATORY Workflow for Resource Creation
-⚠️ You MUST follow every step before calling any create_* tool:
-
-1. **Gather info** — Ask for missing required parameters before proceeding
-2. **Discover context** — ALWAYS call these discovery tools first (never guess):
-   - Before any instance/volume creation: call **compute__list_availability_domains** to get valid AD names
-   - Before creating an instance: call **compute__list_images** (filter by OS if known) to get a valid image_id
-   - Before creating an instance: call **compute__list_shapes** to confirm the desired shape is available
-   - Use list_vcns / list_subnets to find existing networking resources
-3. **Present summary** — Show a clear creation plan:
-   - Resource type and proposed name (following naming convention)
-   - All parameters with values
-   - Security/cost notes
-   - Recommended tags
-4. **Request confirmation** — End with: "Shall I proceed? (yes/no)"
-5. **Wait** — Do NOT call any create_* or terminate_*/delete_* tool until the user types yes/confirm/proceed
-6. **Create and report** — After creation, show the OCID, lifecycle state, and next steps
-
-## MANDATORY Workflow for Resource Termination/Deletion
-⚠️ Termination is PERMANENT and IRREVERSIBLE. You MUST:
-
-1. **Identify the resource** — Use list_* tools to confirm the exact OCID/name of what the user wants to delete
-2. **Check dependencies** — Warn about OCI deletion prerequisites:
-   - Instances: must be RUNNING or STOPPED (not PROVISIONING)
-   - Volumes: must be detached from all instances first
-   - VCNs: all subnets, internet gateways, NAT gateways, service gateways, local peering gateways, dynamic routing gateways, and non-default route tables/security lists must be deleted first
-   - Buckets: must be empty (all objects deleted) before deletion
-3. **State clearly** — Tell the user: what will be deleted, its OCID, and that this CANNOT be undone
-4. **Require explicit confirmation** — Do NOT proceed unless the user says yes/confirm/delete/proceed
-5. **Report outcome** — After deletion, confirm what was removed and suggest any follow-up cleanup
+## MANDATORY Deletion Workflow
+⚠️ Before calling any delete_*/terminate_* tool:
+1. Identify the exact resource (list it, show OCID)
+2. Warn about dependencies and prerequisites
+3. State clearly: "This CANNOT be undone"
+4. Wait for explicit yes/confirm
+5. Report outcome
 
 ## Response Style
-- Format resource lists as clean tables or structured lists
-- Highlight OCIDs (they start with "ocid1.") in code formatting
-- Explain OCI errors in plain English with suggested fixes
-- Be concise but thorough on security/cost implications`;
+- Format resource lists as tables
+- Show OCIDs in \`code\` formatting
+- Explain OCI errors in plain English
+- Always mention cost implications
+
+---
+
+## Oracle OCI Best Practices Reference
+(From OCI Well-Architected Framework, Oracle Architecture Center, Oracle CIS Landing Zone)
+
+${_guidelines}
+`;
 
 // ─── Anthropic tool schemas (Claude API format) ───────────────────────────────
 // Each Anthropic tool maps to one OCI MCP tool via callMCPTool() below.
@@ -362,5 +356,455 @@ export const OCI_TOOLS: Anthropic.Tool[] = [
       },
       required: ['database_id'],
     },
+  },
+
+  /* ── IDENTITY ── */
+  {
+    name: 'identity__list_compartments',
+    description: 'List compartments. Call before creating resources to confirm correct compartment context. Best practice: use separate compartments for Network, Security, AppDev, Database.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        compartment_id: { type: 'string', description: 'Optional: OCID of parent compartment. Defaults to configured root compartment.' },
+      },
+    },
+  },
+  {
+    name: 'identity__create_compartment',
+    description: 'Create a compartment. ONLY call after user confirmation. OCI best practice: create compartments for Network, Security, AppDev, Database to isolate resources and apply least-privilege policies.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        name: { type: 'string', description: 'Compartment name. Convention: <env>-<purpose> e.g. prod-network, prod-security' },
+        description: { type: 'string', description: 'Clear description of compartment purpose' },
+        parent_compartment_id: { type: 'string', description: 'Parent compartment OCID. Omit to create under configured root compartment.' },
+      },
+      required: ['name', 'description'],
+    },
+  },
+  {
+    name: 'identity__list_groups',
+    description: 'List IAM groups in the tenancy. Groups are tenancy-scoped. Use before creating policies to get existing group names.',
+    input_schema: { type: 'object', properties: {} },
+  },
+  {
+    name: 'identity__create_group',
+    description: 'Create an IAM group. ONLY call after user confirmation. OCI best practice: one group per role per compartment (e.g. NetworkAdmins, SecurityAdmins, DBAdmins).',
+    input_schema: {
+      type: 'object',
+      properties: {
+        name: { type: 'string', description: 'Group name. Convention: <Resource>Admins or <Resource>Readers e.g. NetworkAdmins, DBReaders' },
+        description: { type: 'string', description: 'Clear description of group purpose and access level' },
+      },
+      required: ['name', 'description'],
+    },
+  },
+  {
+    name: 'identity__list_policies',
+    description: 'List IAM policies in a compartment.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        compartment_id: { type: 'string', description: 'Optional compartment OCID. Defaults to configured compartment.' },
+      },
+    },
+  },
+  {
+    name: 'identity__create_policy',
+    description: 'Create an IAM policy. ONLY call after user confirmation. Statements use Oracle policy syntax: "allow group <name> to <verb> <resource-type> in compartment <name>".',
+    input_schema: {
+      type: 'object',
+      properties: {
+        name: { type: 'string', description: 'Policy name. Convention: <group>-<compartment>-policy' },
+        description: { type: 'string', description: 'What this policy grants' },
+        statements: {
+          type: 'array',
+          items: { type: 'string' },
+          description: 'Array of policy statements. Example: ["allow group NetworkAdmins to manage virtual-network-family in compartment Network"]',
+        },
+        compartment_id: { type: 'string', description: 'Optional: compartment OCID where policy is created. Defaults to configured compartment.' },
+      },
+      required: ['name', 'description', 'statements'],
+    },
+  },
+  {
+    name: 'identity__list_dynamic_groups',
+    description: 'List dynamic groups (used for Instance Principals). Best practice: use dynamic groups instead of storing API keys on instances.',
+    input_schema: { type: 'object', properties: {} },
+  },
+
+  /* ── NETWORK EXTENDED ── */
+  {
+    name: 'network__list_internet_gateways',
+    description: 'List internet gateways. Each VCN should have at most one IGW, attached only to public subnets via route tables.',
+    input_schema: {
+      type: 'object',
+      properties: { vcn_id: { type: 'string', description: 'Optional VCN OCID to filter' } },
+    },
+  },
+  {
+    name: 'network__create_internet_gateway',
+    description: 'Create an Internet Gateway for a VCN. ONLY call after user confirmation. Needed for public subnets (load balancers, bastion). Route 0.0.0.0/0 to this IGW in the public subnet route table.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        display_name: { type: 'string', description: 'Name: <env>-igw-<vcn-name>' },
+        vcn_id: { type: 'string', description: 'VCN OCID' },
+        is_enabled: { type: 'boolean', description: 'Enable the gateway (default: true)' },
+      },
+      required: ['display_name', 'vcn_id'],
+    },
+  },
+  {
+    name: 'network__list_nat_gateways',
+    description: 'List NAT gateways. Private subnets use NAT GW for outbound internet access.',
+    input_schema: {
+      type: 'object',
+      properties: { vcn_id: { type: 'string', description: 'Optional VCN OCID to filter' } },
+    },
+  },
+  {
+    name: 'network__create_nat_gateway',
+    description: 'Create a NAT Gateway. ONLY call after user confirmation. Required for private subnets that need outbound internet (patches, APIs). Route 0.0.0.0/0 to this NAT GW in private subnet route tables.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        display_name: { type: 'string', description: 'Name: <env>-natgw-<vcn-name>' },
+        vcn_id: { type: 'string', description: 'VCN OCID' },
+      },
+      required: ['display_name', 'vcn_id'],
+    },
+  },
+  {
+    name: 'network__list_service_gateways',
+    description: 'List service gateways. Service GW provides private access to OCI services (Object Storage, ADB) without internet traversal.',
+    input_schema: {
+      type: 'object',
+      properties: { vcn_id: { type: 'string', description: 'Optional VCN OCID to filter' } },
+    },
+  },
+  {
+    name: 'network__create_service_gateway',
+    description: 'Create a Service Gateway. ONLY call after user confirmation. Enables private access to OCI services (Object Storage, ADB). Best practice: always create alongside NAT GW for private subnets.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        display_name: { type: 'string', description: 'Name: <env>-sgw-<vcn-name>' },
+        vcn_id: { type: 'string', description: 'VCN OCID' },
+      },
+      required: ['display_name', 'vcn_id'],
+    },
+  },
+  {
+    name: 'network__list_route_tables',
+    description: 'List route tables in a VCN. Each subnet needs a route table directing traffic to the appropriate gateway.',
+    input_schema: {
+      type: 'object',
+      properties: { vcn_id: { type: 'string', description: 'Optional VCN OCID to filter' } },
+    },
+  },
+  {
+    name: 'network__create_route_table',
+    description: 'Create a route table. ONLY call after user confirmation. Public subnet: route 0.0.0.0/0 → IGW. Private subnet: route 0.0.0.0/0 → NAT GW and OCI services CIDR → Service GW.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        display_name: { type: 'string', description: 'Name: <env>-rt-<subnet-name> e.g. prod-rt-public' },
+        vcn_id: { type: 'string', description: 'VCN OCID' },
+        route_rules: {
+          type: 'array',
+          description: 'Array of route rules. Each rule: { destination: "0.0.0.0/0", network_entity_id: "<gateway-ocid>" }',
+          items: {
+            type: 'object',
+            properties: {
+              destination: { type: 'string', description: 'CIDR block e.g. 0.0.0.0/0' },
+              network_entity_id: { type: 'string', description: 'Gateway OCID (IGW, NAT GW, or Service GW)' },
+            },
+            required: ['destination', 'network_entity_id'],
+          },
+        },
+      },
+      required: ['display_name', 'vcn_id'],
+    },
+  },
+  {
+    name: 'network__list_network_security_groups',
+    description: 'List Network Security Groups (NSGs). NSGs are preferred over Security Lists — they attach to individual VNICs and support more granular rules.',
+    input_schema: {
+      type: 'object',
+      properties: { vcn_id: { type: 'string', description: 'Optional VCN OCID to filter' } },
+    },
+  },
+  {
+    name: 'network__create_network_security_group',
+    description: 'Create a Network Security Group (NSG). ONLY call after user confirmation. Create one NSG per tier: LB-NSG, App-NSG, DB-NSG. Apply least-privilege ingress/egress rules.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        display_name: { type: 'string', description: 'Name: <env>-nsg-<tier> e.g. prod-nsg-app, prod-nsg-db' },
+        vcn_id: { type: 'string', description: 'VCN OCID' },
+      },
+      required: ['display_name', 'vcn_id'],
+    },
+  },
+  {
+    name: 'network__list_drgs',
+    description: 'List Dynamic Routing Gateways (DRGs). DRGs enable VCN-to-VCN peering and on-premises connectivity (FastConnect/VPN).',
+    input_schema: { type: 'object', properties: {} },
+  },
+  {
+    name: 'network__create_drg',
+    description: 'Create a Dynamic Routing Gateway. ONLY call after user confirmation. One DRG per region is typical — attach multiple VCNs to it for hub-and-spoke topology.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        display_name: { type: 'string', description: 'Name: <env>-drg-<region>' },
+      },
+      required: ['display_name'],
+    },
+  },
+
+  /* ── SECURITY ── */
+  {
+    name: 'security__get_cloud_guard_configuration',
+    description: 'Get Cloud Guard status for the tenancy. Cloud Guard detects misconfigurations and threats. Should be ENABLED at root compartment.',
+    input_schema: { type: 'object', properties: {} },
+  },
+  {
+    name: 'security__enable_cloud_guard',
+    description: 'Enable or disable Cloud Guard. ONLY call after user confirmation. Best practice: ALWAYS enable Cloud Guard at tenancy root. It is free and detects public buckets, open security lists, weak passwords.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        status: { type: 'string', enum: ['ENABLED', 'DISABLED'], description: 'ENABLED to activate Cloud Guard (strongly recommended)' },
+      },
+      required: ['status'],
+    },
+  },
+  {
+    name: 'security__list_cloud_guard_targets',
+    description: 'List Cloud Guard monitoring targets. Each target scopes Cloud Guard to a compartment.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        compartment_id: { type: 'string', description: 'Optional compartment OCID. Defaults to configured compartment.' },
+      },
+    },
+  },
+  {
+    name: 'security__create_cloud_guard_target',
+    description: 'Create a Cloud Guard target for a compartment. ONLY call after user confirmation. Point to the root compartment OCID to monitor everything.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        display_name: { type: 'string', description: 'Name: <env>-cloudguard-target' },
+        target_resource_id: { type: 'string', description: 'OCID of the compartment to monitor (use tenancy OCID for root-level coverage)' },
+      },
+      required: ['display_name', 'target_resource_id'],
+    },
+  },
+  {
+    name: 'security__list_vaults',
+    description: 'List Vaults (OCI Key Management). Vaults store encryption keys (CMK) and secrets. Best practice: one vault per region per environment.',
+    input_schema: { type: 'object', properties: {} },
+  },
+  {
+    name: 'security__create_vault',
+    description: 'Create a Vault for key management. ONLY call after user confirmation. Use DEFAULT type for most workloads. VIRTUAL_PRIVATE gives dedicated HSM partition (higher cost).',
+    input_schema: {
+      type: 'object',
+      properties: {
+        display_name: { type: 'string', description: 'Name: <env>-vault-<region> e.g. prod-vault-fra' },
+        vault_type: {
+          type: 'string',
+          enum: ['DEFAULT', 'VIRTUAL_PRIVATE'],
+          description: 'DEFAULT: shared HSM (recommended, ~$0/month for keys). VIRTUAL_PRIVATE: dedicated partition (expensive).',
+        },
+      },
+      required: ['display_name'],
+    },
+  },
+  {
+    name: 'security__list_bastions',
+    description: 'List Bastion resources. Bastions provide secure SSH/RDP access to private instances without public IPs.',
+    input_schema: { type: 'object', properties: {} },
+  },
+  {
+    name: 'security__create_bastion',
+    description: 'Create a Bastion for secure SSH access. ONLY call after user confirmation. Deploy in a public subnet. Never expose application instances with public IPs — always use Bastion.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        name: { type: 'string', description: 'Name: <env>-bastion-<purpose> e.g. prod-bastion-main' },
+        target_subnet_id: { type: 'string', description: 'OCID of the public subnet where the Bastion is deployed' },
+        client_cidr_block_allow_list: {
+          type: 'array',
+          items: { type: 'string' },
+          description: 'List of CIDRs allowed to connect to the Bastion. Restrict to corporate IP ranges. e.g. ["203.0.113.0/24"]',
+        },
+      },
+      required: ['name', 'target_subnet_id', 'client_cidr_block_allow_list'],
+    },
+  },
+
+  /* ── OBSERVABILITY: LOGGING ── */
+  {
+    name: 'logging__list_log_groups',
+    description: 'List logging log groups. Log groups organise logs per compartment/application. Best practice: one log group per compartment.',
+    input_schema: { type: 'object', properties: {} },
+  },
+  {
+    name: 'logging__create_log_group',
+    description: 'Create a log group. ONLY call after user confirmation. Create one per compartment: <env>-<compartment>-log-group.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        display_name: { type: 'string', description: 'Name: <env>-<compartment>-log-group e.g. prod-network-log-group' },
+        description: { type: 'string', description: 'Optional description of what this log group collects' },
+      },
+      required: ['display_name'],
+    },
+  },
+  {
+    name: 'logging__list_logs',
+    description: 'List logs within a log group.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        log_group_id: { type: 'string', description: 'Log group OCID' },
+      },
+      required: ['log_group_id'],
+    },
+  },
+  {
+    name: 'logging__create_log',
+    description: 'Create a log within a log group. ONLY call after user confirmation. Enable VCN Flow Logs, Audit logs, and Service logs for full observability.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        log_group_id: { type: 'string', description: 'Log group OCID where this log will be stored' },
+        display_name: { type: 'string', description: 'Name: <resource-type>-<resource-name>-log e.g. vcn-flow-prod-vcn-main-log' },
+        log_type: {
+          type: 'string',
+          enum: ['CUSTOM', 'SERVICE'],
+          description: 'CUSTOM: for application logs. SERVICE: for OCI service logs (VCN flow, LB access, Object Storage).',
+        },
+      },
+      required: ['log_group_id', 'display_name'],
+    },
+  },
+
+  /* ── OBSERVABILITY: MONITORING ── */
+  {
+    name: 'monitoring__list_alarms',
+    description: 'List monitoring alarms. Best practice: create alarms for CPU, memory, instance health, budget, and security events.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        compartment_id: { type: 'string', description: 'Optional compartment OCID. Defaults to configured compartment.' },
+      },
+    },
+  },
+  {
+    name: 'monitoring__create_alarm',
+    description: 'Create a monitoring alarm. ONLY call after user confirmation. Requires a notification topic OCID as destination. Common namespaces: oci_computeagent, oci_autonomous_database, oci_lbaas.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        display_name: { type: 'string', description: 'Name: <env>-alarm-<metric>-<threshold> e.g. prod-alarm-cpu-high' },
+        namespace: { type: 'string', description: 'Metric namespace e.g. oci_computeagent, oci_autonomous_database, oci_lbaas, oci_objectstorage' },
+        query: { type: 'string', description: 'MQL query e.g. "CpuUtilization[1m].mean() > 80" or "HealthyBackendCount[1m].min() < 1"' },
+        severity: {
+          type: 'string',
+          enum: ['CRITICAL', 'ERROR', 'WARNING', 'INFO'],
+          description: 'CRITICAL: page immediately. WARNING: alert. INFO: informational.',
+        },
+        destinations: {
+          type: 'array',
+          items: { type: 'string' },
+          description: 'Array of notification topic OCIDs. Create topics with notifications__create_topic first.',
+        },
+      },
+      required: ['display_name', 'namespace', 'query', 'severity', 'destinations'],
+    },
+  },
+
+  /* ── OBSERVABILITY: NOTIFICATIONS ── */
+  {
+    name: 'notifications__list_topics',
+    description: 'List ONS notification topics. Topics receive alarm and event notifications, then fan out to email/PagerDuty/Slack subscribers.',
+    input_schema: { type: 'object', properties: {} },
+  },
+  {
+    name: 'notifications__create_topic',
+    description: 'Create a notification topic. ONLY call after user confirmation. Best practice: create separate topics per severity: <env>-topic-critical, <env>-topic-warning, <env>-topic-security.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        name: { type: 'string', description: 'Topic name: <env>-topic-<severity> e.g. prod-topic-critical' },
+        description: { type: 'string', description: 'Optional description of what notifications this topic receives' },
+      },
+      required: ['name'],
+    },
+  },
+  {
+    name: 'notifications__create_subscription',
+    description: 'Subscribe to a notification topic. ONLY call after user confirmation. Add email, PagerDuty, or Slack subscribers to receive alerts.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        topic_id: { type: 'string', description: 'Topic OCID to subscribe to' },
+        protocol: {
+          type: 'string',
+          enum: ['EMAIL', 'HTTPS', 'PAGERDUTY', 'SLACK', 'SMS', 'ORACLE_FUNCTIONS'],
+          description: 'Delivery protocol. EMAIL requires email address. HTTPS/PAGERDUTY/SLACK require webhook URL.',
+        },
+        endpoint: { type: 'string', description: 'Delivery endpoint: email address, webhook URL, or phone number depending on protocol' },
+      },
+      required: ['topic_id', 'protocol', 'endpoint'],
+    },
+  },
+
+  /* ── OBSERVABILITY: EVENTS ── */
+  {
+    name: 'events__list_rules',
+    description: 'List event rules. Event rules trigger notifications when OCI resources change (creates, deletes, state changes).',
+    input_schema: { type: 'object', properties: {} },
+  },
+  {
+    name: 'events__create_rule',
+    description: 'Create an event rule. ONLY call after user confirmation. Use to alert on security-sensitive events: public bucket creation, IAM policy changes, Cloud Guard findings.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        display_name: { type: 'string', description: 'Name: <env>-event-<trigger> e.g. prod-event-public-bucket' },
+        description: { type: 'string', description: 'What event this rule monitors' },
+        condition: {
+          type: 'string',
+          description: 'JSON filter string. Example: \'{"eventType":["com.oraclecloud.objectstorage.createbucket"],"data":{"additionalDetails":{"publicAccessType":["ObjectRead","ObjectReadWithoutList"]}}}\' or \'{"eventType":["com.oraclecloud.identitycontrolplane.updatepolicy"]}\'',
+        },
+        actions: {
+          type: 'array',
+          description: 'Array of actions to trigger',
+          items: {
+            type: 'object',
+            properties: {
+              action_type: { type: 'string', description: 'Action type: ONS (notification topic), OSS (streaming), FAAS (functions)' },
+              is_enabled: { type: 'boolean', description: 'Enable this action' },
+              topic_id: { type: 'string', description: 'Topic OCID (required when action_type=ONS)' },
+            },
+            required: ['action_type', 'is_enabled'],
+          },
+        },
+      },
+      required: ['display_name', 'description', 'condition', 'actions'],
+    },
+  },
+
+  /* ── OBSERVABILITY: SERVICE CONNECTOR HUB ── */
+  {
+    name: 'sch__list_service_connectors',
+    description: 'List Service Connector Hub connectors. SCH routes logs/metrics to destinations like Object Storage, Streaming, or Functions for SIEM integration.',
+    input_schema: { type: 'object', properties: {} },
   },
 ];
