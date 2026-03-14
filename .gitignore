@@ -36,3 +36,6 @@ oci-credentials.json
 
 # Runtime data (OCI docs version cache, etc.)
 data/
+
+# Electron installer output
+installer/
