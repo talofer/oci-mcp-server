@@ -718,6 +718,21 @@ const MCP_TOOLS: MCPTool[] = [
     },
   },
   {
+    name: 'resource_manager__create_stack_from_hcl',
+    description: 'Create a Resource Manager stack from raw HCL text files. The server zips the files in memory and uploads them. Preferred over resource_manager__create_stack when you have HCL content.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        display_name:      { type: 'string',  description: 'Stack name. Convention: <env>-stack-<purpose>.' },
+        description:       { type: 'string',  description: 'What this stack provisions.' },
+        terraform_version: { type: 'string',  description: 'Terraform version e.g. "1.2.x". Use list_terraform_versions first.' },
+        variables:         { type: 'object',  description: 'Terraform input variables as key-value pairs.', additionalProperties: { type: 'string' } },
+        files:             { type: 'object',  description: 'Map of filename → HCL content. Must include at least one .tf file. E.g. {"main.tf":"...","variables.tf":"..."}', additionalProperties: { type: 'string' } },
+      },
+      required: ['display_name', 'files'],
+    },
+  },
+  {
     name: 'resource_manager__update_stack',
     description: 'Update a stack display name, description, variables, or Terraform version.',
     inputSchema: {
@@ -1298,6 +1313,15 @@ async function executeOCITool(name: string, a: Args): Promise<unknown> {
         objectStorageNamespace: a.object_storage_namespace as string | undefined,
         objectStorageRegion:    a.object_storage_region as string | undefined,
         zipContentBase64:       a.zip_content_base64 as string | undefined,
+      });
+
+    case 'resource_manager__create_stack_from_hcl':
+      return rm.createStackFromHCL({
+        displayName:      a.display_name as string,
+        description:      a.description as string | undefined,
+        terraformVersion: a.terraform_version as string | undefined,
+        variables:        a.variables as Record<string, string> | undefined,
+        files:            a.files as Record<string, string>,
       });
 
     case 'resource_manager__update_stack':

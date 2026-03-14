@@ -15,7 +15,7 @@ function sse(res: Response, event: string, data: unknown): void {
 
 const WRITE_VERBS = [
   'create', 'delete', 'terminate', 'enable', 'disable',
-  'update', 'modify', 'attach', 'detach',
+  'update', 'modify', 'attach', 'detach', 'cancel',
 ];
 
 function isWriteTool(name: string): boolean {

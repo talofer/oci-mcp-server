@@ -501,6 +501,9 @@ let abortController = null;
 // Write operations executed this session — used to offer revert after a stop.
 let sessionWriteOps = [];
 
+// Side-map of tool_use id → input, captured at tool_call time so tool_result can reference it.
+let toolCallInputs = {};
+
 // ── Auto-resize textarea ──────────────────────────────────────────────────────
 function autoResize(el) {
   el.style.height = 'auto';
@@ -707,6 +710,7 @@ function handleEvent(type, payload, textEl, labelEl, assistantEl) {
     case 'tool_call': {
       const card = createToolCard(payload.id, payload.name, payload.input);
       assistantEl.querySelector('.text').after(card);
+      toolCallInputs[payload.id] = payload.input;
       maybeScrollToBottom();
       break;
     }
@@ -723,7 +727,12 @@ function handleEvent(type, payload, textEl, labelEl, assistantEl) {
       }
       // Track write operations for potential revert after a stop.
       if (payload.name && isWriteToolName(payload.name)) {
-        sessionWriteOps.push({ toolName: payload.name, time: new Date().toLocaleTimeString() });
+        sessionWriteOps.push({
+          toolName: payload.name,
+          input:    toolCallInputs[payload.id] || null,
+          result:   payload.result || null,
+          time:     new Date().toLocaleTimeString(),
+        });
       }
       maybeScrollToBottom();
       break;
@@ -867,7 +876,7 @@ function maybeScrollToBottom() {
 // ── Write-tool name detection (mirrors server-side isWriteTool) ────────────────
 function isWriteToolName(name) {
   const lower = name.toLowerCase();
-  return ['create','delete','terminate','enable','disable','update','modify','attach','detach']
+  return ['create','delete','terminate','enable','disable','update','modify','attach','detach','cancel']
     .some(v => lower.includes(v));
 }
 
@@ -893,12 +902,43 @@ function showAbortSummary(assistantEl) {
     </div>
   `;
 
-  // Use addEventListener to avoid any escaping issues with inline onclick.
-  const revertMsg =
-    'I stopped the previous operation mid-way. The following write actions were ' +
-    'already executed: ' + ops.map(op => toolLabel(op.toolName)).join(', ') + '. ' +
-    'Please list the exact resources that were created, then ask me whether to ' +
-    'delete/terminate each one individually before taking any action.';
+  // ── Detect Resource Manager stacks for a smarter revert message ──────────
+  // Extract stack IDs from create_stack / create_stack_from_hcl results.
+  const stackIds = ops
+    .filter(op =>
+      op.toolName === 'resource_manager__create_stack' ||
+      op.toolName === 'resource_manager__create_stack_from_hcl'
+    )
+    .map(op => op.result && op.result.id)
+    .filter(Boolean);
+
+  // Also capture stack IDs surfaced by completed APPLY jobs (stackId field added to createJob return).
+  const applyStackIds = ops
+    .filter(op =>
+      op.toolName === 'resource_manager__create_job' &&
+      op.result && op.result.operation === 'APPLY'
+    )
+    .map(op => op.result && op.result.stackId)
+    .filter(Boolean);
+
+  const allStackIds = [...new Set([...stackIds, ...applyStackIds])];
+
+  let revertMsg;
+  if (allStackIds.length > 0) {
+    const list = allStackIds.map(id => '`' + id + '`').join(', ');
+    revertMsg =
+      'I stopped the previous operation mid-way. The following Resource Manager stacks were ' +
+      'created or modified: ' + list + '. ' +
+      'Please revert by running a DESTROY job on each stack, waiting for SUCCEEDED, then ' +
+      'deleting the stack. Also check whether any additional direct-API resources were ' +
+      'created outside of these stacks.';
+  } else {
+    revertMsg =
+      'I stopped the previous operation mid-way. The following write actions were already ' +
+      'executed: ' + ops.map(op => toolLabel(op.toolName)).join(', ') + '. ' +
+      'Please list the exact resources that were created, then ask me whether to ' +
+      'delete/terminate each one individually before taking any action.';
+  }
 
   panel.querySelector('.btn-revert').addEventListener('click', () => {
     const inp = document.getElementById('input');
@@ -953,6 +993,7 @@ function clearChat() {
   pendingHistory = [];
   streaming      = false;
   sessionWriteOps = [];
+  toolCallInputs  = {};
   showStopBtn(false);
   setInputLocked(false);
   history = [];

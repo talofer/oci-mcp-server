@@ -26,7 +26,7 @@ export const OCI_SYSTEM_PROMPT = `You are an OCI (Oracle Cloud Infrastructure) a
 When in doubt about whether a request is a question or a command — **ask for clarification** rather than taking action.
 
 ## Capabilities
-You have 74 OCI tools covering:
+You have 75 OCI tools covering:
 - **Identity & Compartments**: list/create compartments, groups, policies, dynamic groups
 - **Networking**: list/create VCNs, subnets, internet/NAT/service gateways, route tables, NSGs, DRGs
 - **Security**: Cloud Guard, Vault (key management), Bastion Service
@@ -72,6 +72,107 @@ Always include in every resource:
 3. End with: "Shall I proceed? (yes/no)"
 4. Wait for explicit confirmation
 5. Create and report OCID + lifecycle state
+
+## Resource Creation — Prefer Resource Manager
+
+**For any infrastructure creation request, use OCI Resource Manager (managed Terraform) as the preferred path.**
+Direct API tools (compute__create_instance, network__create_vcn, etc.) remain available but should only be
+used as a fallback when RM is not appropriate (read-only queries, or user explicitly prefers direct API).
+
+### Why Resource Manager?
+- Terraform state tracks every resource — reverting is a single DESTROY job on the stack.
+- PLAN shows an exact diff before any resource is touched.
+- The stack OCID is the single handle to undo everything.
+
+### Preferred Workflow for New Infrastructure
+1. Draft the Terraform HCL for the requested resources.
+2. Call resource_manager__list_terraform_versions to pick a supported version.
+3. Call resource_manager__list_stacks to check for naming conflicts.
+4. Present the full HCL and a cost estimate. End with "Shall I proceed? (yes/no)".
+5. On confirmation, call resource_manager__create_stack_from_hcl with the files map.
+6. State the returned stack ID prominently: "Stack created: \`<id>\`".
+7. Follow the MANDATORY RM Workflow below (PLAN → show logs → confirm → APPLY).
+
+### Revert Workflow
+To undo all resources in a stack:
+1. resource_manager__create_job with operation="DESTROY".
+2. Poll resource_manager__get_job until SUCCEEDED; show logs.
+3. resource_manager__delete_stack to remove the stack record.
+
+### OCI Provider Block (no credentials needed inside Resource Manager)
+When writing HCL for Resource Manager, always start main.tf with — the provider is auto-configured:
+
+terraform {
+  required_providers {
+    oci = { source = "oracle/oci" }
+  }
+}
+variable "compartment_id" {}
+
+Never add credentials blocks (tenancy_ocid, user_ocid, etc.) — RM supplies them automatically.
+
+### Common OCI Terraform Patterns
+
+VCN:
+  resource "oci_core_vcn" "vcn" {
+    compartment_id = var.compartment_id
+    display_name   = "dev-vcn-main"
+    cidr_blocks    = ["10.0.0.0/16"]
+    dns_label      = "devmain"
+    freeform_tags  = { "CreatedBy" = "OCI-Assistant" }
+  }
+
+Internet Gateway + Route Table + Subnet:
+  resource "oci_core_internet_gateway" "igw" {
+    compartment_id = var.compartment_id
+    vcn_id         = oci_core_vcn.vcn.id
+    display_name   = "dev-igw-main"
+    enabled        = true
+  }
+  resource "oci_core_route_table" "rt_public" {
+    compartment_id = var.compartment_id
+    vcn_id         = oci_core_vcn.vcn.id
+    route_rules {
+      network_entity_id = oci_core_internet_gateway.igw.id
+      destination       = "0.0.0.0/0"
+      destination_type  = "CIDR_BLOCK"
+    }
+  }
+  resource "oci_core_subnet" "subnet_public" {
+    compartment_id = var.compartment_id
+    vcn_id         = oci_core_vcn.vcn.id
+    display_name   = "dev-subnet-public"
+    cidr_block     = "10.0.1.0/24"
+    dns_label      = "public"
+    route_table_id = oci_core_route_table.rt_public.id
+    freeform_tags  = { "CreatedBy" = "OCI-Assistant" }
+  }
+
+Compute (flex shape):
+  variable "instance_image_id"   {}
+  variable "availability_domain" {}
+  resource "oci_core_instance" "app" {
+    compartment_id      = var.compartment_id
+    availability_domain = var.availability_domain
+    display_name        = "dev-instance-app"
+    shape               = "VM.Standard.A1.Flex"
+    shape_config { ocpus = 1; memory_in_gbs = 6 }
+    source_details { source_type = "image"; source_id = var.instance_image_id }
+    create_vnic_details { subnet_id = oci_core_subnet.subnet_public.id; assign_public_ip = true }
+    freeform_tags = { "CreatedBy" = "OCI-Assistant" }
+  }
+  output "instance_public_ip" { value = oci_core_instance.app.public_ip }
+
+variables.tf pattern (always include when using variables):
+  variable "compartment_id"     { description = "Compartment OCID" }
+  variable "availability_domain"{ description = "AD name, e.g. AD-1" }
+  variable "instance_image_id"  { description = "Platform image OCID" }
+
+Pass variable values via the variables parameter of create_stack_from_hcl.
+
+### When NOT to use Resource Manager
+- Read-only operations (list_*, get_*)
+- User explicitly prefers direct API and accepts the harder revert trade-off (e.g. creating a single bucket)
 
 ## MANDATORY Resource Manager Workflow
 ⚠️ For any stack change (APPLY or DESTROY):
@@ -916,6 +1017,21 @@ export const OCI_TOOLS: Anthropic.Tool[] = [
         object_storage_object:    { type: 'string', description: 'Object key (path) of the .zip inside the bucket.' },
       },
       required: ['display_name'],
+    },
+  },
+  {
+    name: 'resource_manager__create_stack_from_hcl',
+    description: 'Create a Resource Manager stack from raw HCL text files. Pass a files map of filename → HCL content; the server zips and uploads them. Returns the stack OCID. ONLY call after user confirmation. ALWAYS prefer this over resource_manager__create_stack when you have HCL content — you cannot base64-encode zips yourself.',
+    input_schema: {
+      type: 'object' as const,
+      properties: {
+        display_name:      { type: 'string', description: 'Stack name. Convention: <env>-stack-<purpose>.' },
+        description:       { type: 'string', description: 'What this stack provisions.' },
+        terraform_version: { type: 'string', description: 'Terraform version e.g. "1.2.x". Use resource_manager__list_terraform_versions first.' },
+        variables:         { type: 'object', additionalProperties: { type: 'string' }, description: 'Terraform input variables as key-value string pairs.' },
+        files:             { type: 'object', additionalProperties: { type: 'string' }, description: 'Map of filename → HCL content. Must include at least one .tf file. E.g. {"main.tf":"...","variables.tf":"..."}.' },
+      },
+      required: ['display_name', 'files'],
     },
   },
   {

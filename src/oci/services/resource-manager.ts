@@ -1,4 +1,5 @@
 import * as OCI from 'oci-sdk';
+import JSZip from 'jszip';
 import { getResourceManagerClient, getCompartmentId } from '../client';
 import logger from '../../utils/logger';
 
@@ -119,6 +120,37 @@ export class ResourceManagerService {
       };
     } catch (error) {
       logger.error('Error creating stack', { error });
+      throw error;
+    }
+  }
+
+  async createStackFromHCL(details: {
+    displayName: string;
+    description?: string;
+    terraformVersion?: string;
+    variables?: Record<string, string>;
+    /** Map of filename → HCL content. Must include at least one .tf file. */
+    files: Record<string, string>;
+  }) {
+    try {
+      if (!details.files || Object.keys(details.files).length === 0) {
+        throw new Error('files must contain at least one .tf file');
+      }
+      const zip = new JSZip();
+      for (const [filename, content] of Object.entries(details.files)) {
+        zip.file(filename, content);
+      }
+      const zipBuffer = await zip.generateAsync({ type: 'nodebuffer' });
+      const zipContentBase64 = zipBuffer.toString('base64');
+      return this.createStack({
+        displayName:      details.displayName,
+        description:      details.description,
+        terraformVersion: details.terraformVersion,
+        variables:        details.variables,
+        zipContentBase64,
+      });
+    } catch (error) {
+      logger.error('Error creating stack from HCL', { error });
       throw error;
     }
   }
@@ -269,6 +301,7 @@ export class ResourceManagerService {
       return {
         id: j.id,
         displayName: j.displayName,
+        stackId: j.stackId,
         operation: j.operation,
         lifecycleState: j.lifecycleState,
         timeCreated: j.timeCreated ? new Date(j.timeCreated).toISOString() : null,
