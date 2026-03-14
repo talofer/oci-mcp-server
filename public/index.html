@@ -23,6 +23,10 @@
       --tool-err: #3a1a1a;
       --tool-err-border: #6a2020;
       --user-bg: #1e2235;
+      /* confirmation card */
+      --confirm-bg: #1e1a0a;
+      --confirm-border: #6b5a00;
+      --confirm-header: #fbbf24;
     }
 
     html, body { height: 100%; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: var(--bg); color: var(--text); }
@@ -167,6 +171,101 @@
     }
     .tool-toggle:hover { color: var(--text); }
 
+    /* ── Confirmation card ── */
+    .confirm-card {
+      margin: 12px 0 4px;
+      border-radius: 10px;
+      overflow: hidden;
+      border: 1px solid var(--confirm-border);
+      background: var(--confirm-bg);
+    }
+
+    .confirm-header-bar {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 10px 14px;
+      background: rgba(107, 90, 0, 0.25);
+      border-bottom: 1px solid var(--confirm-border);
+    }
+    .confirm-header-bar .confirm-icon { font-size: 16px; }
+    .confirm-header-bar .confirm-title {
+      font-size: 12px;
+      font-weight: 700;
+      color: var(--confirm-header);
+      text-transform: uppercase;
+      letter-spacing: .5px;
+    }
+    .confirm-header-bar .confirm-tool-name {
+      margin-left: auto;
+      font-size: 12px;
+      font-weight: 600;
+      font-family: 'Menlo', 'Consolas', monospace;
+      color: #7ec8f8;
+    }
+
+    .confirm-params-wrap {
+      padding: 10px 14px;
+      border-bottom: 1px solid var(--confirm-border);
+    }
+    .confirm-params-label {
+      font-size: 10px;
+      color: var(--text-muted);
+      text-transform: uppercase;
+      letter-spacing: .5px;
+      margin-bottom: 6px;
+    }
+    .confirm-params {
+      font-size: 11px;
+      font-family: 'Menlo', 'Consolas', monospace;
+      color: var(--text-muted);
+      white-space: pre-wrap;
+      word-break: break-all;
+      max-height: 160px;
+      overflow-y: auto;
+    }
+
+    .confirm-actions {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 10px 14px;
+    }
+
+    .btn-confirm {
+      background: #14532d;
+      border: 1px solid #16a34a;
+      color: #4ade80;
+      padding: 7px 18px;
+      border-radius: 7px;
+      font-size: 13px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: all .15s;
+    }
+    .btn-confirm:hover:not(:disabled) { background: #166534; }
+    .btn-confirm:disabled { opacity: .45; cursor: not-allowed; }
+
+    .btn-cancel-op {
+      background: none;
+      border: 1px solid #6a2020;
+      color: #f87171;
+      padding: 7px 18px;
+      border-radius: 7px;
+      font-size: 13px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: all .15s;
+    }
+    .btn-cancel-op:hover:not(:disabled) { background: #3a1a1a; }
+    .btn-cancel-op:disabled { opacity: .45; cursor: not-allowed; }
+
+    .confirm-status-msg {
+      font-size: 12px;
+      color: var(--text-muted);
+      margin-left: 6px;
+    }
+
     /* ── Input ── */
     .input-bar {
       border-top: 1px solid var(--border);
@@ -199,6 +298,7 @@
     }
     textarea:focus { border-color: #4a5590; }
     textarea::placeholder { color: var(--text-muted); }
+    textarea:disabled { opacity: .5; cursor: not-allowed; }
 
     .btn-send {
       background: var(--accent);
@@ -325,6 +425,11 @@
 let history = [];
 let streaming = false;
 
+// Set when the agentic loop pauses before a write operation.
+// Cleared when the user confirms or cancels.
+let pendingTool = null;
+let pendingHistory = [];
+
 // ── Auto-resize textarea ──────────────────────────────────────────────────────
 function autoResize(el) {
   el.style.height = 'auto';
@@ -341,18 +446,19 @@ function onKey(e) {
 
 // ── Send message ──────────────────────────────────────────────────────────────
 function sendFromInput() {
+  if (streaming || pendingTool) return;
   const inp = document.getElementById('input');
   const text = inp.value.trim();
-  if (!text || streaming) return;
+  if (!text) return;
   inp.value = '';
   inp.style.height = 'auto';
   send(text);
 }
 
 async function send(text) {
-  if (streaming) return;
+  if (streaming || pendingTool) return;
   streaming = true;
-  document.getElementById('send-btn').disabled = true;
+  setInputLocked(true);
 
   // Hide welcome screen
   const welcome = document.getElementById('welcome');
@@ -367,8 +473,6 @@ async function send(text) {
   const labelEl = assistantEl.querySelector('.label');
   labelEl.innerHTML = 'OCI Assistant <span class="thinking"><span class="spinner"></span></span>';
 
-  let accumulated = '';
-
   try {
     const resp = await fetch('/chat', {
       method: 'POST',
@@ -376,49 +480,124 @@ async function send(text) {
       body: JSON.stringify({ message: text, history }),
     });
 
-    if (!resp.ok) {
-      throw new Error(`Server error: ${resp.status}`);
-    }
+    if (!resp.ok) throw new Error(`Server error: ${resp.status}`);
 
-    const reader = resp.body.getReader();
-    const decoder = new TextDecoder();
-    let buf = '';
-
-    while (true) {
-      const { value, done } = await reader.read();
-      if (done) break;
-
-      buf += decoder.decode(value, { stream: true });
-
-      // Parse SSE events
-      const events = buf.split('\n\n');
-      buf = events.pop() || '';
-
-      for (const raw of events) {
-        const lines = raw.split('\n');
-        let eventType = '', data = '';
-        for (const line of lines) {
-          if (line.startsWith('event: ')) eventType = line.slice(7).trim();
-          if (line.startsWith('data: '))  data = line.slice(6).trim();
-        }
-        if (!eventType || !data) continue;
-
-        try {
-          const payload = JSON.parse(data);
-          handleEvent(eventType, payload, textEl, labelEl, assistantEl);
-          if (eventType === 'done') { history = payload.history || []; }
-        } catch (e) { console.error('SSE parse error', e); }
-      }
-    }
+    await consumeStream(resp, textEl, labelEl, assistantEl);
   } catch (err) {
     showError(err.message || 'Connection failed');
     textEl.textContent = '⚠️ ' + (err.message || 'Request failed');
   } finally {
     labelEl.innerHTML = 'OCI Assistant';
     streaming = false;
-    document.getElementById('send-btn').disabled = false;
-    document.getElementById('input').focus();
+    // Re-enable input only if there is no pending confirmation.
+    if (!pendingTool) {
+      setInputLocked(false);
+      document.getElementById('input').focus();
+    }
     scrollToBottom();
+  }
+}
+
+// ── Confirm / Cancel pending write operation ──────────────────────────────────
+
+async function confirmTool(cardId) {
+  if (!pendingTool || streaming) return;
+  _resolveConfirmation(cardId, '__CONFIRM__', 'Executing…');
+}
+
+async function cancelTool(cardId) {
+  if (!pendingTool || streaming) return;
+  _resolveConfirmation(cardId, '__CANCEL__', 'Cancelled');
+}
+
+async function _resolveConfirmation(cardId, action, statusMsg) {
+  // Update the confirmation card UI immediately.
+  const card = document.getElementById('confirm-card-' + cardId);
+  if (card) {
+    card.querySelectorAll('button').forEach(b => b.disabled = true);
+    const actionsEl = card.querySelector('.confirm-actions');
+    const statusSpan = document.createElement('span');
+    statusSpan.className = 'confirm-status-msg';
+    statusSpan.textContent = statusMsg;
+    actionsEl.appendChild(statusSpan);
+  }
+
+  streaming = true;
+  // Input remains locked — pendingTool is still set until the response arrives.
+
+  const savedPendingTool = pendingTool;
+  const savedHistory    = pendingHistory;
+  pendingTool   = null;
+  pendingHistory = [];
+
+  // Open a new assistant message for Claude's response.
+  const assistantEl = appendMessage('assistant', '');
+  const textEl  = assistantEl.querySelector('.text');
+  const labelEl = assistantEl.querySelector('.label');
+  labelEl.innerHTML = 'OCI Assistant <span class="thinking"><span class="spinner"></span></span>';
+
+  try {
+    const resp = await fetch('/chat', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        message: action,
+        history: savedHistory,
+        pendingTool: savedPendingTool,
+      }),
+    });
+
+    if (!resp.ok) throw new Error(`Server error: ${resp.status}`);
+
+    await consumeStream(resp, textEl, labelEl, assistantEl);
+  } catch (err) {
+    showError(err.message || 'Connection failed');
+    textEl.textContent = '⚠️ ' + (err.message || 'Request failed');
+  } finally {
+    labelEl.innerHTML = 'OCI Assistant';
+    streaming = false;
+    // Re-enable only if no chained confirmation appeared.
+    if (!pendingTool) {
+      setInputLocked(false);
+      document.getElementById('input').focus();
+    }
+    scrollToBottom();
+  }
+}
+
+// ── SSE stream consumer (shared by send() and _resolveConfirmation()) ─────────
+async function consumeStream(resp, textEl, labelEl, assistantEl) {
+  const reader  = resp.body.getReader();
+  const decoder = new TextDecoder();
+  let buf = '';
+
+  while (true) {
+    const { value, done } = await reader.read();
+    if (done) break;
+
+    buf += decoder.decode(value, { stream: true });
+
+    // Parse SSE events (separated by double newline)
+    const events = buf.split('\n\n');
+    buf = events.pop() || '';
+
+    for (const raw of events) {
+      const lines = raw.split('\n');
+      let eventType = '', data = '';
+      for (const line of lines) {
+        if (line.startsWith('event: ')) eventType = line.slice(7).trim();
+        if (line.startsWith('data: '))  data = line.slice(6).trim();
+      }
+      if (!eventType || !data) continue;
+
+      try {
+        const payload = JSON.parse(data);
+        handleEvent(eventType, payload, textEl, labelEl, assistantEl);
+        if (eventType === 'done') {
+          history = payload.history || [];
+        }
+      } catch (e) { console.error('SSE parse error', e); }
+    }
   }
 }
 
@@ -461,8 +640,22 @@ function handleEvent(type, payload, textEl, labelEl, assistantEl) {
       }
       break;
     }
+    case 'confirmation_required': {
+      // Insert a confirmation card so the user can approve or reject the
+      // write operation before it is executed.
+      const confirmCard = createConfirmCard(payload.id, payload.name, payload.input);
+      assistantEl.querySelector('.text').after(confirmCard);
+      scrollToBottom();
+      break;
+    }
     case 'done': {
       labelEl.innerHTML = 'OCI Assistant';
+      if (payload.pendingTool) {
+        // The agentic loop paused for user confirmation.
+        // Store state so _resolveConfirmation() can resume it.
+        pendingTool   = payload.pendingTool;
+        pendingHistory = payload.history || [];
+      }
       break;
     }
     case 'error': {
@@ -488,6 +681,31 @@ function createToolCard(id, name, input) {
     </div>
     <button class="tool-toggle" onclick="toggleToolBody(this)">▸ Show params</button>
     <div class="tool-body">${esc(JSON.stringify(input, null, 2))}</div>
+  `;
+  return card;
+}
+
+// ── Create confirmation card ──────────────────────────────────────────────────
+function createConfirmCard(id, name, input) {
+  const friendly = toolLabel(name);
+  const card = document.createElement('div');
+  card.className = 'confirm-card';
+  card.id = 'confirm-card-' + id;
+
+  card.innerHTML = `
+    <div class="confirm-header-bar">
+      <span class="confirm-icon">⚠️</span>
+      <span class="confirm-title">Confirmation Required</span>
+      <span class="confirm-tool-name">${esc(friendly)}</span>
+    </div>
+    <div class="confirm-params-wrap">
+      <div class="confirm-params-label">Parameters</div>
+      <div class="confirm-params">${esc(JSON.stringify(input, null, 2))}</div>
+    </div>
+    <div class="confirm-actions">
+      <button class="btn-confirm"    onclick="confirmTool('${esc(id)}')">✓ Confirm</button>
+      <button class="btn-cancel-op"  onclick="cancelTool('${esc(id)}')">✗ Cancel</button>
+    </div>
   `;
   return card;
 }
@@ -522,6 +740,17 @@ function appendMessage(role, text) {
   return div;
 }
 
+// ── Input lock helpers ────────────────────────────────────────────────────────
+function setInputLocked(locked) {
+  const inp = document.getElementById('input');
+  const btn = document.getElementById('send-btn');
+  inp.disabled = locked;
+  btn.disabled = locked;
+  inp.placeholder = locked && pendingTool
+    ? 'Confirm or cancel the operation above…'
+    : 'Ask about your OCI resources…';
+}
+
 // ── Utilities ─────────────────────────────────────────────────────────────────
 function scrollToBottom() {
   const m = document.getElementById('messages');
@@ -547,7 +776,13 @@ function showError(msg) {
 }
 
 function clearChat() {
+  // Abort any pending confirmation so Clear works cleanly.
+  pendingTool   = null;
+  pendingHistory = [];
+  streaming = false;
+  setInputLocked(false);
   history = [];
+
   const msgs = document.getElementById('messages');
   msgs.innerHTML = `
     <div class="welcome" id="welcome">

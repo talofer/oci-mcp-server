@@ -4,7 +4,7 @@ import path from 'path';
 import { serverConfig } from './config';
 import logger from './utils/logger';
 import { mcpServer } from './mcp/service';
-import { handleChat } from './chat/handler';
+import { handleChat, PendingTool } from './chat/handler';
 import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js';
 
 // ─── Express app ──────────────────────────────────────────────────────────────
@@ -56,17 +56,40 @@ app.post('/mcp', async (req, res) => {
 // ─── Natural language chat endpoint (SSE) ─────────────────────────────────────
 
 app.post('/chat', async (req, res) => {
-  const { message, history } = req.body as { message?: unknown; history?: unknown };
+  const { message, history, pendingTool } = req.body as {
+    message?: unknown;
+    history?: unknown;
+    pendingTool?: PendingTool;
+  };
 
-  if (!message || typeof message !== 'string' || message.trim().length === 0) {
+  // __CONFIRM__ / __CANCEL__ are internal sentinel values sent by the UI when
+  // the user clicks Confirm or Cancel on a pending write operation.
+  const isResume = message === '__CONFIRM__' || message === '__CANCEL__';
+
+  if (!message || typeof message !== 'string' || (!isResume && message.trim().length === 0)) {
     res.status(400).json({ error: 'message must be a non-empty string' });
     return;
   }
 
   const safeHistory = Array.isArray(history) ? history : [];
 
-  logger.info('Chat request', { preview: message.slice(0, 80) });
-  await handleChat(message.trim(), safeHistory, res);
+  // Validate pendingTool shape to prevent injection of arbitrary input.
+  const safePendingTool: PendingTool | undefined =
+    pendingTool &&
+    typeof pendingTool === 'object' &&
+    typeof pendingTool.id === 'string' &&
+    typeof pendingTool.name === 'string' &&
+    typeof pendingTool.input === 'object'
+      ? pendingTool
+      : undefined;
+
+  if (isResume) {
+    logger.info('Chat resume', { action: message, tool: safePendingTool?.name });
+  } else {
+    logger.info('Chat request', { preview: (message as string).slice(0, 80) });
+  }
+
+  await handleChat(message.trim(), safeHistory, res, safePendingTool);
 });
 
 // ─── Graceful shutdown (registered here so all entry points get it) ───────────
