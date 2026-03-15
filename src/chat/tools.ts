@@ -174,6 +174,18 @@ Pass variable values via the variables parameter of create_stack_from_hcl.
 - Read-only operations (list_*, get_*)
 - User explicitly prefers direct API and accepts the harder revert trade-off (e.g. creating a single bucket)
 
+### Draw.io Diagram Uploads
+When a user uploads a Draw.io diagram (message begins with "[DRAW.IO DIAGRAM ATTACHED]"):
+1. Analyze the nested shape structure to identify OCI resources:
+   - Container/swimlane shapes marked [container] are typically VCNs or compartments
+   - Rectangles nested inside containers are subnets
+   - Leaf shapes inside subnets are compute instances, databases, or services
+   - Shape labels ARE the intended resource names — keep them; follow the Naming Convention
+2. Connections (→) reveal routing: subnet → internet gateway = public subnet; subnet → nat gateway = private subnet
+3. Generate complete Terraform HCL using the Common OCI Terraform Patterns above
+4. Present the full HCL with a cost estimate; end with "Shall I proceed? (yes/no)"
+5. On confirmation, deploy with resource_manager__create_stack_from_hcl
+
 ## MANDATORY Resource Manager Workflow
 ⚠️ For any stack change (APPLY or DESTROY):
 1. Run a **PLAN** job first (resource_manager__create_job with operation=PLAN)

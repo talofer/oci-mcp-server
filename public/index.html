@@ -440,6 +440,118 @@
     ::-webkit-scrollbar { width: 6px; }
     ::-webkit-scrollbar-track { background: transparent; }
     ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+
+    /* ── Header icon buttons (settings, export) ── */
+    .btn-icon {
+      background: none;
+      border: 1px solid var(--border);
+      color: var(--text-muted);
+      font-size: 15px;
+      cursor: pointer;
+      padding: 5px 9px;
+      border-radius: 6px;
+      line-height: 1;
+      transition: all .15s;
+      display: inline-flex;
+      align-items: center;
+    }
+    .btn-icon:hover { border-color: #4a5590; color: var(--text); }
+
+    /* ── Settings panel ── */
+    .settings-panel {
+      background: var(--surface);
+      border-bottom: 1px solid var(--border);
+      padding: 16px 20px;
+      display: flex;
+      flex-direction: column;
+      gap: 14px;
+      flex-shrink: 0;
+      animation: slideDown .18s ease;
+    }
+    .settings-panel.hidden { display: none; }
+    @keyframes slideDown { from{opacity:0;transform:translateY(-6px)} to{opacity:1;transform:translateY(0)} }
+
+    .settings-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      font-size: 13px;
+      font-weight: 600;
+      color: var(--text);
+    }
+    .settings-header .btn-icon { border-color: transparent; font-size: 13px; padding: 3px 6px; }
+
+    .settings-body {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 10px;
+      max-width: 780px;
+    }
+    @media (max-width: 600px) { .settings-body { grid-template-columns: 1fr; } }
+
+    .settings-body label {
+      display: flex;
+      flex-direction: column;
+      font-size: 11px;
+      color: var(--text-muted);
+      text-transform: uppercase;
+      letter-spacing: .4px;
+      gap: 4px;
+    }
+
+    .cfg-input {
+      background: var(--surface2);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      color: var(--text);
+      font-size: 13px;
+      padding: 7px 10px;
+      outline: none;
+      font-family: 'Menlo', 'Consolas', monospace;
+      transition: border-color .15s;
+    }
+    .cfg-input:focus { border-color: #4a5590; }
+
+    .settings-footer {
+      display: flex;
+      align-items: center;
+      justify-content: flex-end;
+      gap: 14px;
+      max-width: 780px;
+    }
+    .cfg-status { font-size: 12px; color: var(--text-muted); transition: color .2s; }
+
+    .btn-save {
+      background: var(--accent);
+      border: none;
+      color: #fff;
+      padding: 7px 18px;
+      border-radius: 7px;
+      font-size: 13px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: opacity .15s;
+    }
+    .btn-save:hover { opacity: .88; }
+    .btn-save:disabled { opacity: .4; cursor: not-allowed; }
+
+    /* ── Attach (upload diagram) button in input bar ── */
+    .btn-attach {
+      background: var(--surface2);
+      border: 1px solid var(--border);
+      color: var(--text-muted);
+      width: 44px;
+      height: 44px;
+      border-radius: 10px;
+      cursor: pointer;
+      font-size: 16px;
+      flex-shrink: 0;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      transition: all .15s;
+    }
+    .btn-attach:hover { border-color: #4a5590; color: var(--text); }
   </style>
 </head>
 <body>
@@ -448,8 +560,42 @@
     <div class="logo">🔶</div>
     <h1>OCI Assistant</h1>
     <div class="badge">via Claude + MCP</div>
+    <button class="btn-icon" onclick="exportDiagram()" title="Export tenancy as Draw.io diagram">📊</button>
+    <button class="btn-icon" id="settings-btn" onclick="toggleSettings()" title="OCI Connection Settings">⚙</button>
     <button class="btn-clear" onclick="clearChat()">Clear</button>
   </header>
+
+  <!-- ── Settings slide-down panel ── -->
+  <div id="settings-panel" class="settings-panel hidden">
+    <div class="settings-header">
+      <span>⚙ OCI Connection Settings</span>
+      <button class="btn-icon" onclick="toggleSettings()" title="Close">✕</button>
+    </div>
+    <div class="settings-body">
+      <label>User OCID
+        <input id="cfg-user" type="text" class="cfg-input" placeholder="ocid1.user.oc1..aaa…" />
+      </label>
+      <label>Tenancy OCID
+        <input id="cfg-tenancy" type="text" class="cfg-input" placeholder="ocid1.tenancy.oc1..aaa…" />
+      </label>
+      <label>Region
+        <input id="cfg-region" type="text" class="cfg-input" placeholder="us-ashburn-1" />
+      </label>
+      <label>API Key Fingerprint
+        <input id="cfg-fingerprint" type="text" class="cfg-input" placeholder="aa:bb:cc:…" />
+      </label>
+      <label>Private Key File Path (server path)
+        <input id="cfg-keyfile" type="text" class="cfg-input" placeholder="/path/to/oci_api_key.pem" />
+      </label>
+      <label>Compartment ID
+        <input id="cfg-compartment" type="text" class="cfg-input" placeholder="ocid1.compartment.oc1..aaa…" />
+      </label>
+    </div>
+    <div class="settings-footer">
+      <span id="cfg-status" class="cfg-status"></span>
+      <button class="btn-save" id="cfg-save-btn" onclick="saveSettings()">Save &amp; Reconnect</button>
+    </div>
+  </div>
 
   <div id="messages">
     <div class="welcome" id="welcome">
@@ -477,6 +623,11 @@
         onkeydown="onKey(event)"
         oninput="autoResize(this)"
       ></textarea>
+      <label class="btn-attach" title="Upload Draw.io diagram to deploy as infrastructure">
+        📎
+        <input type="file" id="diagram-input" accept=".drawio,.xml" style="display:none"
+               onchange="handleDiagramUpload(event)">
+      </label>
       <button class="btn-stop" id="stop-btn" onclick="stopStreaming()" title="Stop processing">⏹</button>
       <button class="btn-send" id="send-btn" onclick="sendFromInput()" title="Send">
         &#9654;
@@ -503,6 +654,205 @@ let sessionWriteOps = [];
 
 // Side-map of tool_use id → input, captured at tool_call time so tool_result can reference it.
 let toolCallInputs = {};
+
+// ── Settings panel ────────────────────────────────────────────────────────────
+function toggleSettings() {
+  const panel = document.getElementById('settings-panel');
+  const opening = panel.classList.toggle('hidden');
+  // 'toggle' returns true when class was ADDED (i.e. we are now hidden → we just closed)
+  // We want to load config when opening, so check if the class is now absent
+  if (!panel.classList.contains('hidden')) {
+    // Panel is now visible — load current config from server
+    fetch('/api/config').then(r => r.json()).then(cfg => {
+      document.getElementById('cfg-user').value        = cfg.user        || '';
+      document.getElementById('cfg-tenancy').value     = cfg.tenancy     || '';
+      document.getElementById('cfg-region').value      = cfg.region      || '';
+      document.getElementById('cfg-fingerprint').value = cfg.fingerprint || '';
+      document.getElementById('cfg-keyfile').value     = cfg.keyFile     || '';
+      document.getElementById('cfg-compartment').value = cfg.compartmentId || '';
+      const st = document.getElementById('cfg-status');
+      st.textContent = cfg.configured ? '● Connected' : '○ Not configured';
+      st.style.color = cfg.configured ? '#4ade80' : '#f87171';
+    }).catch(() => {});
+  }
+}
+
+async function saveSettings() {
+  const statusEl = document.getElementById('cfg-status');
+  const saveBtn  = document.getElementById('cfg-save-btn');
+  statusEl.textContent = 'Saving…';
+  statusEl.style.color = '';
+  saveBtn.disabled = true;
+
+  const body = {
+    user:          document.getElementById('cfg-user').value.trim(),
+    tenancy:       document.getElementById('cfg-tenancy').value.trim(),
+    region:        document.getElementById('cfg-region').value.trim(),
+    fingerprint:   document.getElementById('cfg-fingerprint').value.trim(),
+    keyFile:       document.getElementById('cfg-keyfile').value.trim(),
+    compartmentId: document.getElementById('cfg-compartment').value.trim(),
+  };
+
+  // Strip empty keys — only send fields the user actually filled in
+  Object.keys(body).forEach(k => { if (!body[k]) delete body[k]; });
+
+  try {
+    const res  = await fetch('/api/config', {
+      method:  'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body:    JSON.stringify(body),
+    });
+    const data = await res.json();
+    if (data.ok) {
+      statusEl.textContent = '✓ Connected';
+      statusEl.style.color = '#4ade80';
+      setTimeout(() => {
+        // Auto-close after success
+        document.getElementById('settings-panel').classList.add('hidden');
+        statusEl.textContent = '';
+      }, 1400);
+    } else {
+      statusEl.textContent = '✗ ' + data.error;
+      statusEl.style.color = '#f87171';
+    }
+  } catch (e) {
+    statusEl.textContent = '✗ Network error';
+    statusEl.style.color = '#f87171';
+  } finally {
+    saveBtn.disabled = false;
+  }
+}
+
+// ── Draw.io export ─────────────────────────────────────────────────────────────
+async function exportDiagram() {
+  showToast('Querying OCI resources — this may take a moment…');
+  try {
+    const res = await fetch('/api/export-diagram');
+    if (!res.ok) {
+      const txt = await res.text();
+      showToast('Export failed: ' + txt);
+      return;
+    }
+    const blob = await res.blob();
+    const url  = URL.createObjectURL(blob);
+    const a    = document.createElement('a');
+    a.href     = url;
+    a.download = `oci-architecture-${new Date().toISOString().slice(0, 10)}.drawio`;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(url);
+  } catch (e) {
+    showToast('Export failed: ' + e.message);
+  }
+}
+
+// ── Draw.io upload → parse and inject into chat ───────────────────────────────
+function handleDiagramUpload(event) {
+  const file = event.target.files[0];
+  if (!file) return;
+  event.target.value = '';  // reset so same file can be re-selected
+
+  const reader = new FileReader();
+  reader.onload = function(e) {
+    const text   = e.target.result;
+    const parser = new DOMParser();
+    const doc    = parser.parseFromString(text, 'text/xml');
+
+    // Check for XML parse error
+    if (doc.querySelector('parsererror')) {
+      showToast('Could not parse the .drawio file — ensure it is valid XML.');
+      return;
+    }
+
+    // Detect compressed diagram (content inside <diagram> but no child <mxGraphModel>)
+    const diagramEl = doc.querySelector('diagram');
+    const isCompressed = diagramEl &&
+      diagramEl.textContent.trim().length > 20 &&
+      !diagramEl.querySelector('mxGraphModel');
+    if (isCompressed) {
+      showToast('Compressed diagram detected. In draw.io: File → Export As → XML → uncheck "Compressed".');
+      return;
+    }
+
+    // Extract all mxCell elements with meaningful labels
+    const allCells = Array.from(doc.querySelectorAll('mxCell'));
+    const shapes   = [];
+    const edges    = [];
+
+    for (const cell of allCells) {
+      const id     = cell.getAttribute('id');
+      if (id === '0' || id === '1') continue;
+      const value  = (cell.getAttribute('value') || '').trim();
+      const isEdge = cell.getAttribute('edge') === '1';
+      const parent = cell.getAttribute('parent') || '';
+      const source = cell.getAttribute('source') || '';
+      const target = cell.getAttribute('target') || '';
+      const edgeLabel = (cell.getAttribute('value') || '').trim();
+
+      if (isEdge) {
+        const srcLabel = allCells.find(c => c.getAttribute('id') === source)?.getAttribute('value') || source;
+        const tgtLabel = allCells.find(c => c.getAttribute('id') === target)?.getAttribute('value') || target;
+        if (srcLabel && tgtLabel) {
+          edges.push(`${srcLabel} → ${tgtLabel}` + (edgeLabel ? ` (${edgeLabel})` : ''));
+        }
+      } else if (value) {
+        const parentCell  = allCells.find(c => c.getAttribute('id') === parent);
+        const parentLabel = parentCell && parent !== '1' ? (parentCell.getAttribute('value') || '').trim() : null;
+        const isContainer = allCells.some(c => c.getAttribute('parent') === id && c.getAttribute('vertex') === '1');
+        shapes.push({ id, label: value, parentLabel: parentLabel || null, isContainer });
+      }
+    }
+
+    if (shapes.length === 0) {
+      showToast('No labeled shapes found in the diagram. Add text labels to your shapes.');
+      return;
+    }
+
+    // Build readable hierarchy for Claude
+    const lines = [
+      '[DRAW.IO DIAGRAM ATTACHED]',
+      `File: ${file.name}  |  Shapes: ${shapes.length}`,
+      '',
+      'Shapes (indented = nested inside parent container):',
+    ];
+
+    function renderTree(parentLabel, depth) {
+      const indent = '  '.repeat(depth);
+      shapes
+        .filter(s => s.parentLabel === parentLabel)
+        .forEach(s => {
+          lines.push(`${indent}- "${s.label}"${s.isContainer ? ' [container]' : ''}`);
+          renderTree(s.label, depth + 1);
+        });
+    }
+    // Root shapes (no parent label or parent is the diagram root)
+    shapes.filter(s => !s.parentLabel).forEach(s => {
+      lines.push(`- "${s.label}"${s.isContainer ? ' [container]' : ''}`);
+      renderTree(s.label, 1);
+    });
+
+    if (edges.length) {
+      lines.push('', 'Connections:');
+      edges.forEach(e => lines.push(`- ${e}`));
+    }
+
+    lines.push(
+      '',
+      'Please analyze this diagram, identify the OCI resources it represents ' +
+      '(VCNs, subnets, compute instances, gateways, databases, etc.), ' +
+      'then create the corresponding infrastructure using OCI Resource Manager. ' +
+      'Generate Terraform HCL and use resource_manager__create_stack_from_hcl to deploy.'
+    );
+
+    // Pre-fill the chat input and focus
+    const inp = document.getElementById('input');
+    inp.value = lines.join('\n');
+    autoResize(inp);
+    inp.focus();
+  };
+  reader.readAsText(file);
+}
 
 // ── Auto-resize textarea ──────────────────────────────────────────────────────
 function autoResize(el) {

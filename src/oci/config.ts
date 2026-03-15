@@ -66,3 +66,50 @@ export function getTenancyId() {
 export function getPrivateKey() {
   return ociConfig.privateKey;
 }
+
+/**
+ * Returns a summary of the current OCI configuration safe for the browser —
+ * the private key content is excluded; only the file path is returned.
+ */
+export function getConfigSummary() {
+  return {
+    user:          ociConfig.user,
+    tenancy:       ociConfig.tenancy,
+    region:        ociConfig.region,
+    fingerprint:   ociConfig.fingerprint,
+    keyFile:       ociConfig.keyFile,
+    compartmentId: ociConfig.compartmentId,
+    configured:    !!(ociConfig.user && ociConfig.tenancy && ociConfig.region),
+  };
+}
+
+/**
+ * Updates the in-memory OCI configuration at runtime (no server restart needed).
+ * Only fields that are present in `overrides` are changed.
+ * Because OCI clients are not cached (created fresh per request), the new values
+ * take effect on the very next OCI API call.
+ */
+export async function updateOCIConfig(overrides: {
+  user?: string;
+  tenancy?: string;
+  region?: string;
+  fingerprint?: string;
+  keyFile?: string;
+  compartmentId?: string;
+}): Promise<void> {
+  if (overrides.user)          { ociConfig.user          = overrides.user;          process.env.OCI_USER_OCID      = overrides.user; }
+  if (overrides.tenancy)       { ociConfig.tenancy       = overrides.tenancy;       process.env.OCI_TENANCY_OCID   = overrides.tenancy; }
+  if (overrides.region)        { ociConfig.region        = overrides.region;        process.env.OCI_REGION         = overrides.region; }
+  if (overrides.fingerprint)   { ociConfig.fingerprint   = overrides.fingerprint;   process.env.OCI_FINGERPRINT    = overrides.fingerprint; }
+  if (overrides.compartmentId) { ociConfig.compartmentId = overrides.compartmentId; process.env.OCI_COMPARTMENT_ID = overrides.compartmentId; }
+  if (overrides.keyFile) {
+    ociConfig.keyFile = overrides.keyFile;
+    process.env.OCI_KEY_FILE = overrides.keyFile;
+    try {
+      ociConfig.privateKey = fs.readFileSync(path.resolve(overrides.keyFile), 'utf8');
+    } catch (err) {
+      throw new Error(`Failed to read private key file at "${overrides.keyFile}": ${(err as Error).message}`);
+    }
+  }
+  logger.info('OCI configuration updated at runtime', { region: ociConfig.region, user: ociConfig.user });
+}
