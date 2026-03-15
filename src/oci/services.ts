@@ -5,13 +5,14 @@ import {
   getBlockStorageClient,
   getObjectStorageClient,
   getDatabaseClient,
+  getIdentityClient,
   getCompartmentId,
+  getTenancyId,
 } from './client';
 import logger from '../utils/logger';
 
-/**
- * Servicio para gestionar instancias de computación
- */
+// ─── Compute ──────────────────────────────────────────────────────────────────
+
 export class ComputeService {
   private client: OCI.core.ComputeClient;
   private compartmentId: string;
@@ -21,16 +22,9 @@ export class ComputeService {
     this.compartmentId = getCompartmentId();
   }
 
-  /**
-   * Lista todas las instancias de computación en el compartimento
-   */
   async listInstances() {
     try {
-      const request: OCI.core.models.ListInstancesRequest = {
-        compartmentId: this.compartmentId,
-      };
-
-      const response = await this.client.listInstances(request);
+      const response = await this.client.listInstances({ compartmentId: this.compartmentId });
       return response.items;
     } catch (error) {
       logger.error('Error listing compute instances', { error });
@@ -38,16 +32,9 @@ export class ComputeService {
     }
   }
 
-  /**
-   * Obtiene los detalles de una instancia específica
-   */
   async getInstance(instanceId: string) {
     try {
-      const request: OCI.core.models.GetInstanceRequest = {
-        instanceId: instanceId,
-      };
-
-      const response = await this.client.getInstance(request);
+      const response = await this.client.getInstance({ instanceId });
       return response.instance;
     } catch (error) {
       logger.error(`Error getting compute instance: ${instanceId}`, { error });
@@ -55,9 +42,33 @@ export class ComputeService {
     }
   }
 
-  /**
-   * Crea una nueva instancia de computación
-   */
+  async listImages(operatingSystem?: string, shape?: string) {
+    try {
+      const response = await this.client.listImages({
+        compartmentId: this.compartmentId,
+        ...(operatingSystem && { operatingSystem }),
+        ...(shape          && { shape }),
+      });
+      return response.items;
+    } catch (error) {
+      logger.error('Error listing compute images', { error });
+      throw error;
+    }
+  }
+
+  async listShapes(availabilityDomain?: string) {
+    try {
+      const response = await this.client.listShapes({
+        compartmentId: this.compartmentId,
+        ...(availabilityDomain && { availabilityDomain }),
+      });
+      return response.items;
+    } catch (error) {
+      logger.error('Error listing compute shapes', { error });
+      throw error;
+    }
+  }
+
   async createInstance(
     displayName: string,
     shape: string,
@@ -65,50 +76,52 @@ export class ComputeService {
     subnetId: string,
     availabilityDomain: string,
     metadata?: Record<string, string>,
-    shapeConfig?: { ocpus?: number; memoryInGBs?: number }
+    shapeConfig?: { ocpus?: number; memoryInGBs?: number },
   ) {
     try {
-      // Crear detalles de la instancia
-      const launchDetails: OCI.core.models.LaunchInstanceDetails = {
-        availabilityDomain: availabilityDomain,
+      const launchInstanceDetails: OCI.core.models.LaunchInstanceDetails = {
+        availabilityDomain,
         compartmentId: this.compartmentId,
-        displayName: displayName,
-        shape: shape,
+        displayName,
+        shape,
         sourceDetails: {
           sourceType: 'image',
-          imageId: imageId,
+          imageId,
         } as OCI.core.models.InstanceSourceViaImageDetails,
         createVnicDetails: {
-          subnetId: subnetId,
+          subnetId,
           assignPublicIp: true,
         } as OCI.core.models.CreateVnicDetails,
-        metadata: metadata,
+        metadata,
+        ...(shapeConfig && {
+          shapeConfig: {
+            ocpus: shapeConfig.ocpus,
+            memoryInGBs: shapeConfig.memoryInGBs,
+          } as OCI.core.models.LaunchInstanceShapeConfigDetails,
+        }),
       };
-
-      // Añadir configuración de forma si se proporciona
-      if (shapeConfig) {
-        launchDetails.shapeConfig = {
-          ocpus: shapeConfig.ocpus,
-          memoryInGBs: shapeConfig.memoryInGBs,
-        } as OCI.core.models.LaunchInstanceShapeConfigDetails;
-      }
-
-      const request: OCI.core.models.LaunchInstanceRequest = {
-        launchInstanceDetails: launchDetails,
-      };
-
-      const response = await this.client.launchInstance(request);
+      const response = await this.client.launchInstance({ launchInstanceDetails });
       return response.instance;
     } catch (error) {
       logger.error('Error creating compute instance', { error });
       throw error;
     }
   }
+
+  async terminateInstance(instanceId: string, preserveBootVolume: boolean = false) {
+    try {
+      await this.client.terminateInstance({ instanceId, preserveBootVolume });
+      logger.info(`Terminate request accepted for instance: ${instanceId}`);
+      return { instanceId, status: 'TERMINATING', preserveBootVolume };
+    } catch (error) {
+      logger.error(`Error terminating compute instance: ${instanceId}`, { error });
+      throw error;
+    }
+  }
 }
 
-/**
- * Servicio para gestionar redes virtuales
- */
+// ─── Network ──────────────────────────────────────────────────────────────────
+
 export class NetworkService {
   private client: OCI.core.VirtualNetworkClient;
   private compartmentId: string;
@@ -118,16 +131,9 @@ export class NetworkService {
     this.compartmentId = getCompartmentId();
   }
 
-  /**
-   * Lista todas las VCNs en el compartimento
-   */
   async listVcns() {
     try {
-      const request: OCI.core.models.ListVcnsRequest = {
-        compartmentId: this.compartmentId,
-      };
-
-      const response = await this.client.listVcns(request);
+      const response = await this.client.listVcns({ compartmentId: this.compartmentId });
       return response.items;
     } catch (error) {
       logger.error('Error listing VCNs', { error });
@@ -135,16 +141,9 @@ export class NetworkService {
     }
   }
 
-  /**
-   * Obtiene los detalles de una VCN específica
-   */
   async getVcn(vcnId: string) {
     try {
-      const request: OCI.core.models.GetVcnRequest = {
-        vcnId: vcnId,
-      };
-
-      const response = await this.client.getVcn(request);
+      const response = await this.client.getVcn({ vcnId });
       return response.vcn;
     } catch (error) {
       logger.error(`Error getting VCN: ${vcnId}`, { error });
@@ -152,23 +151,15 @@ export class NetworkService {
     }
   }
 
-  /**
-   * Crea una nueva VCN
-   */
   async createVcn(displayName: string, cidrBlock: string, dnsLabel?: string) {
     try {
       const createVcnDetails: OCI.core.models.CreateVcnDetails = {
         compartmentId: this.compartmentId,
-        displayName: displayName,
-        cidrBlock: cidrBlock,
-        dnsLabel: dnsLabel,
+        displayName,
+        cidrBlock,
+        dnsLabel,
       };
-
-      const request: OCI.core.models.CreateVcnRequest = {
-        createVcnDetails: createVcnDetails,
-      };
-
-      const response = await this.client.createVcn(request);
+      const response = await this.client.createVcn({ createVcnDetails });
       return response.vcn;
     } catch (error) {
       logger.error('Error creating VCN', { error });
@@ -176,17 +167,12 @@ export class NetworkService {
     }
   }
 
-  /**
-   * Lista todas las subredes en el compartimento
-   */
   async listSubnets(vcnId?: string) {
     try {
-      const request: OCI.core.models.ListSubnetsRequest = {
+      const response = await this.client.listSubnets({
         compartmentId: this.compartmentId,
-        vcnId: vcnId,
-      };
-
-      const response = await this.client.listSubnets(request);
+        vcnId,
+      });
       return response.items;
     } catch (error) {
       logger.error('Error listing subnets', { error });
@@ -194,42 +180,55 @@ export class NetworkService {
     }
   }
 
-  /**
-   * Crea una nueva subred
-   */
   async createSubnet(
     displayName: string,
     vcnId: string,
     cidrBlock: string,
     availabilityDomain?: string,
-    dnsLabel?: string
+    dnsLabel?: string,
   ) {
     try {
       const createSubnetDetails: OCI.core.models.CreateSubnetDetails = {
         compartmentId: this.compartmentId,
-        displayName: displayName,
-        vcnId: vcnId,
-        cidrBlock: cidrBlock,
-        availabilityDomain: availabilityDomain,
-        dnsLabel: dnsLabel,
+        displayName,
+        vcnId,
+        cidrBlock,
+        availabilityDomain,
+        dnsLabel,
       };
-
-      const request: OCI.core.models.CreateSubnetRequest = {
-        createSubnetDetails: createSubnetDetails,
-      };
-
-      const response = await this.client.createSubnet(request);
+      const response = await this.client.createSubnet({ createSubnetDetails });
       return response.subnet;
     } catch (error) {
       logger.error('Error creating subnet', { error });
       throw error;
     }
   }
+
+  async deleteVcn(vcnId: string) {
+    try {
+      await this.client.deleteVcn({ vcnId });
+      logger.info(`Delete request accepted for VCN: ${vcnId}`);
+      return { vcnId, status: 'DELETED' };
+    } catch (error) {
+      logger.error(`Error deleting VCN: ${vcnId}`, { error });
+      throw error;
+    }
+  }
+
+  async deleteSubnet(subnetId: string) {
+    try {
+      await this.client.deleteSubnet({ subnetId });
+      logger.info(`Delete request accepted for subnet: ${subnetId}`);
+      return { subnetId, status: 'DELETED' };
+    } catch (error) {
+      logger.error(`Error deleting subnet: ${subnetId}`, { error });
+      throw error;
+    }
+  }
 }
 
-/**
- * Servicio para gestionar almacenamiento en bloque
- */
+// ─── Block Storage ────────────────────────────────────────────────────────────
+
 export class BlockStorageService {
   private client: OCI.core.BlockstorageClient;
   private compartmentId: string;
@@ -239,16 +238,9 @@ export class BlockStorageService {
     this.compartmentId = getCompartmentId();
   }
 
-  /**
-   * Lista todos los volúmenes en el compartimento
-   */
   async listVolumes() {
     try {
-      const request: OCI.core.models.ListVolumesRequest = {
-        compartmentId: this.compartmentId,
-      };
-
-      const response = await this.client.listVolumes(request);
+      const response = await this.client.listVolumes({ compartmentId: this.compartmentId });
       return response.items;
     } catch (error) {
       logger.error('Error listing volumes', { error });
@@ -256,16 +248,9 @@ export class BlockStorageService {
     }
   }
 
-  /**
-   * Obtiene los detalles de un volumen específico
-   */
   async getVolume(volumeId: string) {
     try {
-      const request: OCI.core.models.GetVolumeRequest = {
-        volumeId: volumeId,
-      };
-
-      const response = await this.client.getVolume(request);
+      const response = await this.client.getVolume({ volumeId });
       return response.volume;
     } catch (error) {
       logger.error(`Error getting volume: ${volumeId}`, { error });
@@ -273,40 +258,38 @@ export class BlockStorageService {
     }
   }
 
-  /**
-   * Crea un nuevo volumen
-   */
-  async createVolume(
-    displayName: string,
-    availabilityDomain: string,
-    sizeInGBs?: number
-  ) {
+  async createVolume(displayName: string, availabilityDomain: string, sizeInGBs?: number) {
     try {
       const createVolumeDetails: OCI.core.models.CreateVolumeDetails = {
         compartmentId: this.compartmentId,
-        displayName: displayName,
-        availabilityDomain: availabilityDomain,
-        sizeInGBs: sizeInGBs,
+        displayName,
+        availabilityDomain,
+        sizeInGBs,
       };
-
-      const request: OCI.core.models.CreateVolumeRequest = {
-        createVolumeDetails: createVolumeDetails,
-      };
-
-      const response = await this.client.createVolume(request);
+      const response = await this.client.createVolume({ createVolumeDetails });
       return response.volume;
     } catch (error) {
       logger.error('Error creating volume', { error });
       throw error;
     }
   }
+
+  async deleteVolume(volumeId: string) {
+    try {
+      await this.client.deleteVolume({ volumeId });
+      logger.info(`Delete request accepted for volume: ${volumeId}`);
+      return { volumeId, status: 'DELETED' };
+    } catch (error) {
+      logger.error(`Error deleting volume: ${volumeId}`, { error });
+      throw error;
+    }
+  }
 }
 
-/**
- * Servicio para gestionar almacenamiento de objetos
- */
+// ─── Object Storage ───────────────────────────────────────────────────────────
+
 export class ObjectStorageService {
-  private client: OCI.objectStorage.ObjectStorageClient;
+  private client: OCI.objectstorage.ObjectStorageClient;
   private compartmentId: string;
   private namespace: string | null = null;
 
@@ -315,14 +298,8 @@ export class ObjectStorageService {
     this.compartmentId = getCompartmentId();
   }
 
-  /**
-   * Obtiene el namespace del almacenamiento de objetos
-   */
-  async getNamespace() {
-    if (this.namespace) {
-      return this.namespace;
-    }
-
+  async getNamespace(): Promise<string> {
+    if (this.namespace) return this.namespace;
     try {
       const response = await this.client.getNamespace({});
       this.namespace = response.value;
@@ -333,19 +310,13 @@ export class ObjectStorageService {
     }
   }
 
-  /**
-   * Lista todos los buckets en el compartimento
-   */
   async listBuckets() {
     try {
-      const namespace = await this.getNamespace();
-      
-      const request: OCI.objectStorage.models.ListBucketsRequest = {
+      const namespaceName = await this.getNamespace();
+      const response = await this.client.listBuckets({
         compartmentId: this.compartmentId,
-        namespaceName: namespace,
-      };
-
-      const response = await this.client.listBuckets(request);
+        namespaceName,
+      });
       return response.items;
     } catch (error) {
       logger.error('Error listing buckets', { error });
@@ -353,19 +324,10 @@ export class ObjectStorageService {
     }
   }
 
-  /**
-   * Obtiene los detalles de un bucket específico
-   */
   async getBucket(bucketName: string) {
     try {
-      const namespace = await this.getNamespace();
-      
-      const request: OCI.objectStorage.models.GetBucketRequest = {
-        namespaceName: namespace,
-        bucketName: bucketName,
-      };
-
-      const response = await this.client.getBucket(request);
+      const namespaceName = await this.getNamespace();
+      const response = await this.client.getBucket({ namespaceName, bucketName });
       return response.bucket;
     } catch (error) {
       logger.error(`Error getting bucket: ${bucketName}`, { error });
@@ -373,41 +335,67 @@ export class ObjectStorageService {
     }
   }
 
-  /**
-   * Crea un nuevo bucket
-   */
   async createBucket(
     name: string,
     publicAccessType: string = 'NoPublicAccess',
-    storageTier: string = 'Standard'
+    storageTier: string = 'Standard',
   ) {
     try {
-      const namespace = await this.getNamespace();
-      
-      const createBucketDetails: OCI.objectStorage.models.CreateBucketDetails = {
-        name: name,
+      const namespaceName = await this.getNamespace();
+      const createBucketDetails: OCI.objectstorage.models.CreateBucketDetails = {
+        name,
         compartmentId: this.compartmentId,
-        publicAccessType: publicAccessType as OCI.objectStorage.models.CreateBucketDetails.PublicAccessType,
-        storageTier: storageTier as OCI.objectStorage.models.CreateBucketDetails.StorageTier,
+        publicAccessType: publicAccessType as OCI.objectstorage.models.CreateBucketDetails.PublicAccessType,
+        storageTier: storageTier as OCI.objectstorage.models.CreateBucketDetails.StorageTier,
       };
-
-      const request: OCI.objectStorage.models.CreateBucketRequest = {
-        namespaceName: namespace,
-        createBucketDetails: createBucketDetails,
-      };
-
-      const response = await this.client.createBucket(request);
+      const response = await this.client.createBucket({ namespaceName, createBucketDetails });
       return response.bucket;
     } catch (error) {
       logger.error(`Error creating bucket: ${name}`, { error });
       throw error;
     }
   }
+
+  async deleteBucket(bucketName: string) {
+    try {
+      const namespaceName = await this.getNamespace();
+      await this.client.deleteBucket({ namespaceName, bucketName });
+      logger.info(`Delete request accepted for bucket: ${bucketName}`);
+      return { bucketName, status: 'DELETED' };
+    } catch (error) {
+      logger.error(`Error deleting bucket: ${bucketName}`, { error });
+      throw error;
+    }
+  }
 }
 
-/**
- * Servicio para gestionar bases de datos
- */
+// ─── Identity ─────────────────────────────────────────────────────────────────
+
+export class IdentityService {
+  private client: OCI.identity.IdentityClient;
+  private tenancyId: string;
+
+  constructor() {
+    this.client = getIdentityClient();
+    // Availability domains are scoped to the tenancy OCID, not a compartment OCID
+    this.tenancyId = getTenancyId();
+  }
+
+  async listAvailabilityDomains() {
+    try {
+      const response = await this.client.listAvailabilityDomains({
+        compartmentId: this.tenancyId,
+      });
+      return response.items;
+    } catch (error) {
+      logger.error('Error listing availability domains', { error });
+      throw error;
+    }
+  }
+}
+
+// ─── Database ─────────────────────────────────────────────────────────────────
+
 export class DatabaseService {
   private client: OCI.database.DatabaseClient;
   private compartmentId: string;
@@ -417,16 +405,11 @@ export class DatabaseService {
     this.compartmentId = getCompartmentId();
   }
 
-  /**
-   * Lista todas las bases de datos autónomas en el compartimento
-   */
   async listAutonomousDatabases() {
     try {
-      const request: OCI.database.models.ListAutonomousDatabasesRequest = {
+      const response = await this.client.listAutonomousDatabases({
         compartmentId: this.compartmentId,
-      };
-
-      const response = await this.client.listAutonomousDatabases(request);
+      });
       return response.items;
     } catch (error) {
       logger.error('Error listing autonomous databases', { error });
@@ -434,16 +417,11 @@ export class DatabaseService {
     }
   }
 
-  /**
-   * Obtiene los detalles de una base de datos autónoma específica
-   */
   async getAutonomousDatabase(databaseId: string) {
     try {
-      const request: OCI.database.models.GetAutonomousDatabaseRequest = {
+      const response = await this.client.getAutonomousDatabase({
         autonomousDatabaseId: databaseId,
-      };
-
-      const response = await this.client.getAutonomousDatabase(request);
+      });
       return response.autonomousDatabase;
     } catch (error) {
       logger.error(`Error getting autonomous database: ${databaseId}`, { error });
@@ -451,9 +429,6 @@ export class DatabaseService {
     }
   }
 
-  /**
-   * Crea una nueva base de datos autónoma
-   */
   async createAutonomousDatabase(
     displayName: string,
     dbName: string,
@@ -461,28 +436,38 @@ export class DatabaseService {
     cpuCoreCount: number,
     dataStorageSizeInTBs: number,
     isFreeTier: boolean = false,
-    dbWorkload: string = 'OLTP'
+    dbWorkload: string = 'OLTP',
   ) {
     try {
-      const createAutonomousDatabaseDetails: OCI.database.models.CreateAutonomousDatabaseBase = {
+      // CreateAutonomousDatabaseDetails requires source discriminator = "NONE" for new DBs
+      const createAutonomousDatabaseDetails: OCI.database.models.CreateAutonomousDatabaseDetails = {
+        source: OCI.database.models.CreateAutonomousDatabaseDetails.source,
         compartmentId: this.compartmentId,
-        displayName: displayName,
-        dbName: dbName,
-        adminPassword: adminPassword,
-        cpuCoreCount: cpuCoreCount,
-        dataStorageSizeInTBs: dataStorageSizeInTBs,
-        isFreeTier: isFreeTier,
+        displayName,
+        dbName,
+        adminPassword,
+        cpuCoreCount,
+        dataStorageSizeInTBs,
+        isFreeTier,
         dbWorkload: dbWorkload as OCI.database.models.CreateAutonomousDatabaseBase.DbWorkload,
       };
-
-      const request: OCI.database.models.CreateAutonomousDatabaseRequest = {
-        createAutonomousDatabaseDetails: createAutonomousDatabaseDetails,
-      };
-
-      const response = await this.client.createAutonomousDatabase(request);
+      const response = await this.client.createAutonomousDatabase({
+        createAutonomousDatabaseDetails,
+      });
       return response.autonomousDatabase;
     } catch (error) {
       logger.error(`Error creating autonomous database: ${displayName}`, { error });
+      throw error;
+    }
+  }
+
+  async deleteAutonomousDatabase(databaseId: string) {
+    try {
+      await this.client.deleteAutonomousDatabase({ autonomousDatabaseId: databaseId });
+      logger.info(`Delete request accepted for Autonomous Database: ${databaseId}`);
+      return { databaseId, status: 'TERMINATING' };
+    } catch (error) {
+      logger.error(`Error deleting autonomous database: ${databaseId}`, { error });
       throw error;
     }
   }

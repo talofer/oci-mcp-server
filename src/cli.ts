@@ -1,134 +1,105 @@
 #!/usr/bin/env node
+/**
+ * CLI entry-point for the OCI MCP Server.
+ *
+ * Usage:
+ *   node dist/cli.js                 # loads .env from cwd
+ *   node dist/cli.js /path/to/.env   # loads a custom .env file
+ *   node dist/cli.js config.json     # loads a JSON config file
+ *
+ * All six OCI env vars must be set before the server starts:
+ *   OCI_USER_OCID, OCI_TENANCY_OCID, OCI_REGION,
+ *   OCI_FINGERPRINT, OCI_KEY_FILE, OCI_COMPARTMENT_ID
+ *   ANTHROPIC_API_KEY
+ */
 
-import { setupMCPTools } from './mcp/service';
-import { MCPStreamServer } from '@modelcontextprotocol/mcp';
-import { configureOCIClient } from './oci/config';
-import yargs from 'yargs';
-import { hideBin } from 'yargs/helpers';
-import fs from 'fs';
-import path from 'path';
-import dotenv from 'dotenv';
+// Use require() so config is loaded BEFORE index.ts is evaluated
+// (TypeScript compiles import statements as hoisted requires, but plain
+//  require() calls execute in source order).
+/* eslint-disable @typescript-eslint/no-require-imports */
+const dotenv  = require('dotenv')  as typeof import('dotenv');
+const fs      = require('fs')      as typeof import('fs');
+const path    = require('path')    as typeof import('path');
 
-// Configurar las opciones de línea de comandos
-const argv = yargs(hideBin(process.argv))
-  .option('config', {
-    alias: 'c',
-    type: 'string',
-    description: 'Ruta al archivo de configuración de OCI (.env o .json)',
-    default: '.env'
-  })
-  .option('user-ocid', {
-    type: 'string',
-    description: 'OCID del usuario en OCI'
-  })
-  .option('tenancy-ocid', {
-    type: 'string',
-    description: 'OCID del tenancy en OCI'
-  })
-  .option('region', {
-    type: 'string',
-    description: 'Región de OCI'
-  })
-  .option('fingerprint', {
-    type: 'string',
-    description: 'Fingerprint de la clave API'
-  })
-  .option('key-file', {
-    type: 'string',
-    description: 'Ruta al archivo de clave privada'
-  })
-  .option('compartment-id', {
-    type: 'string',
-    description: 'OCID del compartimento donde trabajar'
-  })
-  .help()
-  .argv;
+// ─── Load configuration ───────────────────────────────────────────────────────
 
-// Función para cargar la configuración
-const loadConfig = () => {
-  const configPath = argv.config as string;
-  
-  // Verificar si el archivo de configuración existe
-  if (!fs.existsSync(configPath)) {
-    console.error(`El archivo de configuración no existe: ${configPath}`);
-    process.exit(1);
-  }
-  
-  // Determinar el tipo de archivo de configuración
-  if (path.extname(configPath) === '.json') {
-    // Cargar archivo JSON
+const configArg  = process.argv[2] || '.env';
+const configPath = path.resolve(configArg);
+
+if (fs.existsSync(configPath)) {
+  const ext = path.extname(configPath).toLowerCase();
+
+  if (ext === '.json') {
+    // JSON config file  ──  e.g. { "OCI_USER_OCID": "...", ... }
     try {
-      const configData = JSON.parse(fs.readFileSync(configPath, 'utf8'));
-      
-      // Establecer variables de entorno desde el objeto JSON
-      process.env.OCI_USER_OCID = configData.user || configData.userOcid || configData.OCI_USER_OCID;
-      process.env.OCI_TENANCY_OCID = configData.tenancy || configData.tenancyOcid || configData.OCI_TENANCY_OCID;
-      process.env.OCI_REGION = configData.region || configData.OCI_REGION;
-      process.env.OCI_FINGERPRINT = configData.fingerprint || configData.OCI_FINGERPRINT;
-      process.env.OCI_KEY_FILE = configData.keyFile || configData.OCI_KEY_FILE;
-      process.env.OCI_COMPARTMENT_ID = configData.compartmentId || configData.OCI_COMPARTMENT_ID;
-    } catch (error) {
-      console.error(`Error al parsear el archivo JSON: ${(error as Error).message}`);
+      const data = JSON.parse(fs.readFileSync(configPath, 'utf8')) as Record<string, string>;
+      // Support both flat keys (OCI_USER_OCID) and camelCase aliases
+      const map: Record<string, string[]> = {
+        OCI_USER_OCID:      ['OCI_USER_OCID', 'user', 'userOcid'],
+        OCI_TENANCY_OCID:   ['OCI_TENANCY_OCID', 'tenancy', 'tenancyOcid'],
+        OCI_REGION:         ['OCI_REGION', 'region'],
+        OCI_FINGERPRINT:    ['OCI_FINGERPRINT', 'fingerprint'],
+        OCI_KEY_FILE:       ['OCI_KEY_FILE', 'keyFile', 'key_file'],
+        OCI_COMPARTMENT_ID: ['OCI_COMPARTMENT_ID', 'compartmentId', 'compartment_id'],
+        ANTHROPIC_API_KEY:  ['ANTHROPIC_API_KEY'],
+      };
+      for (const [envKey, aliases] of Object.entries(map)) {
+        const found = aliases.find(a => data[a]);
+        if (found && !process.env[envKey]) process.env[envKey] = data[found];
+      }
+    } catch (err) {
+      console.error(`Failed to parse JSON config: ${(err as Error).message}`);
       process.exit(1);
     }
   } else {
-    // Cargar archivo .env
+    // .env file (default)
     dotenv.config({ path: configPath });
   }
-  
-  // Sobrescribir con argumentos de línea de comandos si están presentes
-  if (argv['user-ocid']) process.env.OCI_USER_OCID = argv['user-ocid'] as string;
-  if (argv['tenancy-ocid']) process.env.OCI_TENANCY_OCID = argv['tenancy-ocid'] as string;
-  if (argv.region) process.env.OCI_REGION = argv.region as string;
-  if (argv.fingerprint) process.env.OCI_FINGERPRINT = argv.fingerprint as string;
-  if (argv['key-file']) process.env.OCI_KEY_FILE = argv['key-file'] as string;
-  if (argv['compartment-id']) process.env.OCI_COMPARTMENT_ID = argv['compartment-id'] as string;
-  
-  // Verificar que las variables requeridas están definidas
-  const requiredVars = [
-    'OCI_USER_OCID',
-    'OCI_TENANCY_OCID',
-    'OCI_REGION',
-    'OCI_FINGERPRINT',
-    'OCI_KEY_FILE',
-    'OCI_COMPARTMENT_ID'
-  ];
-  
-  const missingVars = requiredVars.filter(varName => !process.env[varName]);
-  
-  if (missingVars.length > 0) {
-    console.error(`Faltan las siguientes variables de configuración: ${missingVars.join(', ')}`);
-    process.exit(1);
-  }
-};
+} else {
+  // No config file found — fall back to process environment
+  dotenv.config();
+}
 
-// Cargar la configuración
-loadConfig();
+// ─── Validate required variables ──────────────────────────────────────────────
 
-// Configurar el cliente OCI con las variables de entorno
-configureOCIClient();
+const REQUIRED = [
+  'OCI_USER_OCID',
+  'OCI_TENANCY_OCID',
+  'OCI_REGION',
+  'OCI_FINGERPRINT',
+  'OCI_KEY_FILE',
+  'OCI_COMPARTMENT_ID',
+];
 
-// Crear el servicio MCP con todas las herramientas
-const mcpService = setupMCPTools();
+const missing = REQUIRED.filter(v => !process.env[v]);
+if (missing.length) {
+  console.error(`Missing required environment variables: ${missing.join(', ')}`);
+  console.error('Set them in your .env file or pass a config path as the first argument.');
+  process.exit(1);
+}
 
-// Crear el servidor MCP que se comunica a través de stdin/stdout
-const server = new MCPStreamServer({
-  service: mcpService,
-  input: process.stdin,
-  output: process.stdout
-});
+if (!process.env.ANTHROPIC_API_KEY) {
+  console.warn('Warning: ANTHROPIC_API_KEY is not set — the /chat endpoint will not work.');
+}
 
-// Iniciar el servidor
-console.error('Iniciando servidor MCP para Oracle Cloud Infrastructure...');
-server.start();
+// ─── Start the HTTP server ────────────────────────────────────────────────────
 
-// Manejar señales de terminación
-process.on('SIGTERM', () => {
-  console.error('SIGTERM recibido, cerrando servidor...');
-  process.exit(0);
-});
+// eslint-disable-next-line @typescript-eslint/no-var-requires
+const { default: app }              = require('./index')             as { default: import('express').Application };
+// eslint-disable-next-line @typescript-eslint/no-var-requires
+const { serverConfig }              = require('./config')            as { serverConfig: { port: number } };
+// eslint-disable-next-line @typescript-eslint/no-var-requires
+const { default: logger }           = require('./utils/logger')      as { default: import('winston').Logger };
+// eslint-disable-next-line @typescript-eslint/no-var-requires
+const { checkOCIDocsForUpdates }    = require('./utils/doc-checker') as typeof import('./utils/doc-checker');
 
-process.on('SIGINT', () => {
-  console.error('SIGINT recibido, cerrando servidor...');
-  process.exit(0);
+app.listen(serverConfig.port, () => {
+  logger.info(`OCI MCP Server running on port ${serverConfig.port}`);
+  logger.info(`Web UI:          http://localhost:${serverConfig.port}`);
+  logger.info(`MCP endpoint:    http://localhost:${serverConfig.port}/mcp`);
+
+  // Non-blocking: check OCI docs for updates in the background
+  checkOCIDocsForUpdates().catch((err: unknown) =>
+    logger.warn('OCI docs version check failed', { err }),
+  );
 });

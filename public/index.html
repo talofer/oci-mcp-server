@@ -1,0 +1,1370 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>OCI Assistant</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --bg: #0f1117;
+      --surface: #1a1d27;
+      --surface2: #242736;
+      --border: #2d3148;
+      --text: #e2e8f0;
+      --text-muted: #8892a4;
+      --accent: #f80000;          /* OCI red */
+      --accent-soft: #3a1a1a;
+      --tool-bg: #1a2235;
+      --tool-border: #2a4060;
+      --tool-ok: #1a3a2a;
+      --tool-ok-border: #2a6040;
+      --tool-err: #3a1a1a;
+      --tool-err-border: #6a2020;
+      --user-bg: #1e2235;
+      /* confirmation card */
+      --confirm-bg: #1e1a0a;
+      --confirm-border: #6b5a00;
+      --confirm-header: #fbbf24;
+    }
+
+    html, body { height: 100%; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: var(--bg); color: var(--text); }
+
+    /* ── Layout ── */
+    .layout { display: flex; flex-direction: column; height: 100vh; }
+
+    header {
+      background: var(--surface);
+      border-bottom: 1px solid var(--border);
+      padding: 14px 20px;
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      flex-shrink: 0;
+    }
+    header .logo { font-size: 22px; }
+    header h1 { font-size: 17px; font-weight: 600; color: var(--text); }
+    header .badge {
+      margin-left: auto;
+      background: var(--accent-soft);
+      color: var(--accent);
+      border: 1px solid #5a1a1a;
+      font-size: 11px;
+      padding: 3px 8px;
+      border-radius: 20px;
+      font-weight: 600;
+    }
+    header .btn-clear {
+      background: none;
+      border: 1px solid var(--border);
+      color: var(--text-muted);
+      padding: 5px 12px;
+      border-radius: 6px;
+      font-size: 12px;
+      cursor: pointer;
+      transition: all .15s;
+    }
+    header .btn-clear:hover { border-color: var(--accent); color: var(--accent); }
+
+    /* ── Messages ── */
+    #messages {
+      flex: 1;
+      overflow-y: auto;
+      padding: 24px 0;
+      display: flex;
+      flex-direction: column;
+      gap: 20px;
+    }
+
+    .msg { max-width: 780px; width: 100%; margin: 0 auto; padding: 0 20px; }
+
+    .msg-user .bubble {
+      background: var(--user-bg);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 12px 16px;
+      line-height: 1.6;
+      white-space: pre-wrap;
+    }
+    .msg-user .label { font-size: 11px; color: var(--text-muted); margin-bottom: 6px; text-transform: uppercase; letter-spacing: .5px; }
+
+    .msg-assistant .label { font-size: 11px; color: var(--text-muted); margin-bottom: 6px; text-transform: uppercase; letter-spacing: .5px; display: flex; align-items: center; gap: 6px; }
+    .msg-assistant .label .thinking { color: #7c8aff; animation: pulse 1.2s infinite; }
+    @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:.4} }
+
+    .msg-assistant .text {
+      line-height: 1.7;
+      white-space: pre-wrap;
+      word-break: break-word;
+    }
+    .msg-assistant .text code {
+      background: var(--surface2);
+      border: 1px solid var(--border);
+      border-radius: 4px;
+      padding: 1px 5px;
+      font-family: 'Menlo', 'Consolas', monospace;
+      font-size: 13px;
+    }
+    .msg-assistant .text pre {
+      background: var(--surface2);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 12px 14px;
+      overflow-x: auto;
+      margin: 8px 0;
+      font-family: 'Menlo', 'Consolas', monospace;
+      font-size: 12px;
+      line-height: 1.5;
+    }
+
+    /* ── Tool call cards ── */
+    .tool-call {
+      margin: 8px 0;
+      border-radius: 8px;
+      overflow: hidden;
+      border: 1px solid var(--tool-border);
+      background: var(--tool-bg);
+    }
+    .tool-call.done { border-color: var(--tool-ok-border); background: var(--tool-ok); }
+    .tool-call.error { border-color: var(--tool-err-border); background: var(--tool-err); }
+
+    .tool-header {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 8px 12px;
+      font-size: 12px;
+      font-weight: 600;
+      font-family: 'Menlo', 'Consolas', monospace;
+    }
+    .tool-header .icon { font-size: 14px; }
+    .tool-header .name { color: #7ec8f8; }
+    .tool-header .status { margin-left: auto; color: var(--text-muted); font-weight: 400; }
+    .tool-call.done .tool-header .status { color: #4ade80; }
+    .tool-call.error .tool-header .status { color: #f87171; }
+
+    .tool-body {
+      padding: 8px 12px;
+      font-size: 11px;
+      font-family: 'Menlo', 'Consolas', monospace;
+      color: var(--text-muted);
+      border-top: 1px solid var(--tool-border);
+      max-height: 200px;
+      overflow-y: auto;
+      white-space: pre-wrap;
+      word-break: break-all;
+      display: none;
+    }
+    .tool-call.expanded .tool-body { display: block; }
+    .tool-call.done .tool-body { border-color: var(--tool-ok-border); }
+    .tool-call.error .tool-body { border-color: var(--tool-err-border); }
+
+    .tool-toggle {
+      background: none;
+      border: none;
+      color: var(--text-muted);
+      font-size: 11px;
+      cursor: pointer;
+      padding: 4px 12px 8px;
+      text-align: left;
+    }
+    .tool-toggle:hover { color: var(--text); }
+
+    /* ── Confirmation card ── */
+    .confirm-card {
+      margin: 12px 0 4px;
+      border-radius: 10px;
+      overflow: hidden;
+      border: 1px solid var(--confirm-border);
+      background: var(--confirm-bg);
+    }
+
+    .confirm-header-bar {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 10px 14px;
+      background: rgba(107, 90, 0, 0.25);
+      border-bottom: 1px solid var(--confirm-border);
+    }
+    .confirm-header-bar .confirm-icon { font-size: 16px; }
+    .confirm-header-bar .confirm-title {
+      font-size: 12px;
+      font-weight: 700;
+      color: var(--confirm-header);
+      text-transform: uppercase;
+      letter-spacing: .5px;
+    }
+    .confirm-header-bar .confirm-tool-name {
+      margin-left: auto;
+      font-size: 12px;
+      font-weight: 600;
+      font-family: 'Menlo', 'Consolas', monospace;
+      color: #7ec8f8;
+    }
+
+    .confirm-params-wrap {
+      padding: 10px 14px;
+      border-bottom: 1px solid var(--confirm-border);
+    }
+    .confirm-params-label {
+      font-size: 10px;
+      color: var(--text-muted);
+      text-transform: uppercase;
+      letter-spacing: .5px;
+      margin-bottom: 6px;
+    }
+    .confirm-params {
+      font-size: 11px;
+      font-family: 'Menlo', 'Consolas', monospace;
+      color: var(--text-muted);
+      white-space: pre-wrap;
+      word-break: break-all;
+      max-height: 160px;
+      overflow-y: auto;
+    }
+
+    .confirm-actions {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 10px 14px;
+    }
+
+    .btn-confirm {
+      background: #14532d;
+      border: 1px solid #16a34a;
+      color: #4ade80;
+      padding: 7px 18px;
+      border-radius: 7px;
+      font-size: 13px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: all .15s;
+    }
+    .btn-confirm:hover:not(:disabled) { background: #166534; }
+    .btn-confirm:disabled { opacity: .45; cursor: not-allowed; }
+
+    .btn-cancel-op {
+      background: none;
+      border: 1px solid #6a2020;
+      color: #f87171;
+      padding: 7px 18px;
+      border-radius: 7px;
+      font-size: 13px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: all .15s;
+    }
+    .btn-cancel-op:hover:not(:disabled) { background: #3a1a1a; }
+    .btn-cancel-op:disabled { opacity: .45; cursor: not-allowed; }
+
+    .confirm-status-msg {
+      font-size: 12px;
+      color: var(--text-muted);
+      margin-left: 6px;
+    }
+
+    /* ── Stop button ── */
+    .btn-stop {
+      background: #3a1a1a;
+      border: 1px solid var(--accent);
+      color: var(--accent);
+      width: 44px;
+      height: 44px;
+      border-radius: 10px;
+      cursor: pointer;
+      font-size: 15px;
+      flex-shrink: 0;
+      display: none;
+      align-items: center;
+      justify-content: center;
+      transition: all .15s;
+    }
+    .btn-stop.visible { display: flex; }
+    .btn-stop:hover { background: #5a1a1a; }
+
+    /* ── Session audit panel (shown after an aborted mid-operation) ── */
+    .session-audit {
+      margin: 10px 0 0;
+      border-radius: 10px;
+      border: 1px solid #4a3a00;
+      background: #131008;
+      overflow: hidden;
+    }
+    .session-audit-header {
+      padding: 8px 14px;
+      background: rgba(251, 191, 36, 0.08);
+      font-size: 11px;
+      font-weight: 700;
+      color: #fbbf24;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+    .session-audit-body {
+      padding: 6px 14px 8px;
+      font-size: 11px;
+      font-family: 'Menlo', 'Consolas', monospace;
+      color: var(--text-muted);
+    }
+    .session-audit-item {
+      padding: 3px 0;
+      border-bottom: 1px solid #2a2200;
+    }
+    .session-audit-item:last-child { border-bottom: none; }
+    .session-audit-actions {
+      padding: 8px 14px;
+      border-top: 1px solid #4a3a00;
+    }
+    .btn-revert {
+      background: none;
+      border: 1px solid #6a2020;
+      color: #f87171;
+      padding: 6px 14px;
+      border-radius: 6px;
+      font-size: 12px;
+      cursor: pointer;
+      transition: all .15s;
+    }
+    .btn-revert:hover { background: #3a1a1a; }
+
+    /* ── Input ── */
+    .input-bar {
+      border-top: 1px solid var(--border);
+      background: var(--surface);
+      padding: 16px 20px;
+      flex-shrink: 0;
+    }
+    .input-wrap {
+      max-width: 780px;
+      margin: 0 auto;
+      display: flex;
+      gap: 10px;
+      align-items: flex-end;
+    }
+    textarea {
+      flex: 1;
+      background: var(--surface2);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      color: var(--text);
+      font-size: 14px;
+      line-height: 1.5;
+      padding: 10px 14px;
+      resize: none;
+      min-height: 44px;
+      max-height: 180px;
+      font-family: inherit;
+      outline: none;
+      transition: border-color .15s;
+    }
+    textarea:focus { border-color: #4a5590; }
+    textarea::placeholder { color: var(--text-muted); }
+    textarea:disabled { opacity: .5; cursor: not-allowed; }
+
+    .btn-send {
+      background: var(--accent);
+      border: none;
+      color: #fff;
+      width: 44px;
+      height: 44px;
+      border-radius: 10px;
+      cursor: pointer;
+      font-size: 18px;
+      flex-shrink: 0;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      transition: opacity .15s;
+    }
+    .btn-send:hover:not(:disabled) { opacity: .85; }
+    .btn-send:disabled { opacity: .4; cursor: not-allowed; }
+
+    /* ── Welcome ── */
+    .welcome {
+      max-width: 580px;
+      margin: 60px auto;
+      padding: 0 20px;
+      text-align: center;
+    }
+    .welcome .icon { font-size: 48px; margin-bottom: 16px; }
+    .welcome h2 { font-size: 22px; font-weight: 600; margin-bottom: 8px; }
+    .welcome p { color: var(--text-muted); line-height: 1.6; margin-bottom: 24px; }
+    .suggestions { display: flex; flex-wrap: wrap; gap: 8px; justify-content: center; }
+    .suggestion {
+      background: var(--surface2);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 8px 14px;
+      font-size: 13px;
+      cursor: pointer;
+      color: var(--text-muted);
+      transition: all .15s;
+      text-align: left;
+    }
+    .suggestion:hover { border-color: #4a5590; color: var(--text); }
+
+    /* ── Error toast ── */
+    .toast {
+      position: fixed;
+      bottom: 80px;
+      left: 50%;
+      transform: translateX(-50%);
+      background: #3a1a1a;
+      border: 1px solid var(--accent);
+      color: #f87171;
+      padding: 10px 18px;
+      border-radius: 8px;
+      font-size: 13px;
+      max-width: 500px;
+      text-align: center;
+      z-index: 100;
+      animation: fadeIn .2s;
+    }
+    @keyframes fadeIn { from{opacity:0;transform:translateX(-50%) translateY(8px)} to{opacity:1;transform:translateX(-50%)} }
+
+    /* ── Spinner ── */
+    .spinner {
+      width: 14px; height: 14px;
+      border: 2px solid var(--border);
+      border-top-color: #7c8aff;
+      border-radius: 50%;
+      animation: spin .8s linear infinite;
+      display: inline-block;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    /* ── Scrollbar ── */
+    ::-webkit-scrollbar { width: 6px; }
+    ::-webkit-scrollbar-track { background: transparent; }
+    ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+
+    /* ── Header icon buttons (settings, export) ── */
+    .btn-icon {
+      background: none;
+      border: 1px solid var(--border);
+      color: var(--text-muted);
+      font-size: 15px;
+      cursor: pointer;
+      padding: 5px 9px;
+      border-radius: 6px;
+      line-height: 1;
+      transition: all .15s;
+      display: inline-flex;
+      align-items: center;
+    }
+    .btn-icon:hover { border-color: #4a5590; color: var(--text); }
+
+    /* ── Settings panel ── */
+    .settings-panel {
+      background: var(--surface);
+      border-bottom: 1px solid var(--border);
+      padding: 16px 20px;
+      display: flex;
+      flex-direction: column;
+      gap: 14px;
+      flex-shrink: 0;
+      animation: slideDown .18s ease;
+    }
+    .settings-panel.hidden { display: none; }
+    @keyframes slideDown { from{opacity:0;transform:translateY(-6px)} to{opacity:1;transform:translateY(0)} }
+
+    .settings-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      font-size: 13px;
+      font-weight: 600;
+      color: var(--text);
+    }
+    .settings-header .btn-icon { border-color: transparent; font-size: 13px; padding: 3px 6px; }
+
+    .settings-body {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 10px;
+      max-width: 780px;
+    }
+    @media (max-width: 600px) { .settings-body { grid-template-columns: 1fr; } }
+
+    .settings-body label {
+      display: flex;
+      flex-direction: column;
+      font-size: 11px;
+      color: var(--text-muted);
+      text-transform: uppercase;
+      letter-spacing: .4px;
+      gap: 4px;
+    }
+
+    .cfg-input {
+      background: var(--surface2);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      color: var(--text);
+      font-size: 13px;
+      padding: 7px 10px;
+      outline: none;
+      font-family: 'Menlo', 'Consolas', monospace;
+      transition: border-color .15s;
+    }
+    .cfg-input:focus { border-color: #4a5590; }
+
+    .settings-footer {
+      display: flex;
+      align-items: center;
+      justify-content: flex-end;
+      gap: 14px;
+      max-width: 780px;
+    }
+    .cfg-status { font-size: 12px; color: var(--text-muted); transition: color .2s; }
+
+    .btn-save {
+      background: var(--accent);
+      border: none;
+      color: #fff;
+      padding: 7px 18px;
+      border-radius: 7px;
+      font-size: 13px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: opacity .15s;
+    }
+    .btn-save:hover { opacity: .88; }
+    .btn-save:disabled { opacity: .4; cursor: not-allowed; }
+
+    /* ── Attach (upload diagram) button in input bar ── */
+    .btn-attach {
+      background: var(--surface2);
+      border: 1px solid var(--border);
+      color: var(--text-muted);
+      width: 44px;
+      height: 44px;
+      border-radius: 10px;
+      cursor: pointer;
+      font-size: 16px;
+      flex-shrink: 0;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      transition: all .15s;
+    }
+    .btn-attach:hover { border-color: #4a5590; color: var(--text); }
+  </style>
+</head>
+<body>
+<div class="layout">
+  <header>
+    <div class="logo">🔶</div>
+    <h1>OCI Assistant</h1>
+    <div class="badge">via Claude + MCP</div>
+    <button class="btn-icon" onclick="exportDiagram()" title="Export tenancy as Draw.io diagram">📊</button>
+    <button class="btn-icon" id="settings-btn" onclick="toggleSettings()" title="OCI Connection Settings">⚙</button>
+    <button class="btn-clear" onclick="clearChat()">Clear</button>
+  </header>
+
+  <!-- ── Settings slide-down panel ── -->
+  <div id="settings-panel" class="settings-panel hidden">
+    <div class="settings-header">
+      <span>⚙ OCI Connection Settings</span>
+      <button class="btn-icon" onclick="toggleSettings()" title="Close">✕</button>
+    </div>
+    <div class="settings-body">
+      <label>User OCID
+        <input id="cfg-user" type="text" class="cfg-input" placeholder="ocid1.user.oc1..aaa…" />
+      </label>
+      <label>Tenancy OCID
+        <input id="cfg-tenancy" type="text" class="cfg-input" placeholder="ocid1.tenancy.oc1..aaa…" />
+      </label>
+      <label>Region
+        <input id="cfg-region" type="text" class="cfg-input" placeholder="us-ashburn-1" />
+      </label>
+      <label>API Key Fingerprint
+        <input id="cfg-fingerprint" type="text" class="cfg-input" placeholder="aa:bb:cc:…" />
+      </label>
+      <label>Private Key File Path (server path)
+        <input id="cfg-keyfile" type="text" class="cfg-input" placeholder="/path/to/oci_api_key.pem" />
+      </label>
+      <label>Compartment ID
+        <input id="cfg-compartment" type="text" class="cfg-input" placeholder="ocid1.compartment.oc1..aaa…" />
+      </label>
+    </div>
+    <div class="settings-footer">
+      <span id="cfg-status" class="cfg-status"></span>
+      <button class="btn-save" id="cfg-save-btn" onclick="saveSettings()">Save &amp; Reconnect</button>
+    </div>
+  </div>
+
+  <div id="messages">
+    <div class="welcome" id="welcome">
+      <div class="icon">☁️</div>
+      <h2>Manage Oracle Cloud with natural language</h2>
+      <p>Ask me to list, inspect, or create resources in your OCI tenancy.<br>
+         I follow OCI best practices and always confirm before creating anything.</p>
+      <div class="suggestions">
+        <div class="suggestion" onclick="send(this.textContent)">List all my compute instances</div>
+        <div class="suggestion" onclick="send(this.textContent)">Show me my VCNs and their CIDRs</div>
+        <div class="suggestion" onclick="send(this.textContent)">Create a dev VCN with best-practice settings</div>
+        <div class="suggestion" onclick="send(this.textContent)">List all object storage buckets</div>
+        <div class="suggestion" onclick="send(this.textContent)">What autonomous databases do I have?</div>
+        <div class="suggestion" onclick="send(this.textContent)">Help me plan a new VCN and subnet layout</div>
+      </div>
+    </div>
+  </div>
+
+  <div class="input-bar">
+    <div class="input-wrap">
+      <textarea
+        id="input"
+        placeholder="Ask about your OCI resources…"
+        rows="1"
+        onkeydown="onKey(event)"
+        oninput="autoResize(this)"
+      ></textarea>
+      <label class="btn-attach" title="Upload Draw.io diagram to deploy as infrastructure">
+        📎
+        <input type="file" id="diagram-input" accept=".drawio,.xml" style="display:none"
+               onchange="handleDiagramUpload(event)">
+      </label>
+      <button class="btn-stop" id="stop-btn" onclick="stopStreaming()" title="Stop processing">⏹</button>
+      <button class="btn-send" id="send-btn" onclick="sendFromInput()" title="Send">
+        &#9654;
+      </button>
+    </div>
+  </div>
+</div>
+
+<script>
+// ── State ─────────────────────────────────────────────────────────────────────
+let history = [];
+let streaming = false;
+
+// Set when the agentic loop pauses before a write operation.
+// Cleared when the user confirms or cancels.
+let pendingTool = null;
+let pendingHistory = [];
+
+// AbortController for the active SSE fetch (null when idle).
+let abortController = null;
+
+// Write operations executed this session — used to offer revert after a stop.
+let sessionWriteOps = [];
+
+// Side-map of tool_use id → input, captured at tool_call time so tool_result can reference it.
+let toolCallInputs = {};
+
+// ── Settings panel ────────────────────────────────────────────────────────────
+function toggleSettings() {
+  const panel = document.getElementById('settings-panel');
+  const opening = panel.classList.toggle('hidden');
+  // 'toggle' returns true when class was ADDED (i.e. we are now hidden → we just closed)
+  // We want to load config when opening, so check if the class is now absent
+  if (!panel.classList.contains('hidden')) {
+    // Panel is now visible — load current config from server
+    fetch('/api/config').then(r => r.json()).then(cfg => {
+      document.getElementById('cfg-user').value        = cfg.user        || '';
+      document.getElementById('cfg-tenancy').value     = cfg.tenancy     || '';
+      document.getElementById('cfg-region').value      = cfg.region      || '';
+      document.getElementById('cfg-fingerprint').value = cfg.fingerprint || '';
+      document.getElementById('cfg-keyfile').value     = cfg.keyFile     || '';
+      document.getElementById('cfg-compartment').value = cfg.compartmentId || '';
+      const st = document.getElementById('cfg-status');
+      st.textContent = cfg.configured ? '● Connected' : '○ Not configured';
+      st.style.color = cfg.configured ? '#4ade80' : '#f87171';
+    }).catch(() => {});
+  }
+}
+
+async function saveSettings() {
+  const statusEl = document.getElementById('cfg-status');
+  const saveBtn  = document.getElementById('cfg-save-btn');
+  statusEl.textContent = 'Saving…';
+  statusEl.style.color = '';
+  saveBtn.disabled = true;
+
+  const body = {
+    user:          document.getElementById('cfg-user').value.trim(),
+    tenancy:       document.getElementById('cfg-tenancy').value.trim(),
+    region:        document.getElementById('cfg-region').value.trim(),
+    fingerprint:   document.getElementById('cfg-fingerprint').value.trim(),
+    keyFile:       document.getElementById('cfg-keyfile').value.trim(),
+    compartmentId: document.getElementById('cfg-compartment').value.trim(),
+  };
+
+  // Strip empty keys — only send fields the user actually filled in
+  Object.keys(body).forEach(k => { if (!body[k]) delete body[k]; });
+
+  try {
+    const res  = await fetch('/api/config', {
+      method:  'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body:    JSON.stringify(body),
+    });
+    const data = await res.json();
+    if (data.ok) {
+      statusEl.textContent = '✓ Connected';
+      statusEl.style.color = '#4ade80';
+      setTimeout(() => {
+        // Auto-close after success
+        document.getElementById('settings-panel').classList.add('hidden');
+        statusEl.textContent = '';
+      }, 1400);
+    } else {
+      statusEl.textContent = '✗ ' + data.error;
+      statusEl.style.color = '#f87171';
+    }
+  } catch (e) {
+    statusEl.textContent = '✗ Network error';
+    statusEl.style.color = '#f87171';
+  } finally {
+    saveBtn.disabled = false;
+  }
+}
+
+// ── Draw.io export ─────────────────────────────────────────────────────────────
+async function exportDiagram() {
+  showToast('Querying OCI resources — this may take a moment…');
+  try {
+    const res = await fetch('/api/export-diagram');
+    if (!res.ok) {
+      const txt = await res.text();
+      showToast('Export failed: ' + txt);
+      return;
+    }
+    const blob = await res.blob();
+    const url  = URL.createObjectURL(blob);
+    const a    = document.createElement('a');
+    a.href     = url;
+    a.download = `oci-architecture-${new Date().toISOString().slice(0, 10)}.drawio`;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(url);
+  } catch (e) {
+    showToast('Export failed: ' + e.message);
+  }
+}
+
+// ── Draw.io upload → parse and inject into chat ───────────────────────────────
+function handleDiagramUpload(event) {
+  const file = event.target.files[0];
+  if (!file) return;
+  event.target.value = '';  // reset so same file can be re-selected
+
+  const reader = new FileReader();
+  reader.onload = function(e) {
+    const text   = e.target.result;
+    const parser = new DOMParser();
+    const doc    = parser.parseFromString(text, 'text/xml');
+
+    // Check for XML parse error
+    if (doc.querySelector('parsererror')) {
+      showToast('Could not parse the .drawio file — ensure it is valid XML.');
+      return;
+    }
+
+    // Detect compressed diagram (content inside <diagram> but no child <mxGraphModel>)
+    const diagramEl = doc.querySelector('diagram');
+    const isCompressed = diagramEl &&
+      diagramEl.textContent.trim().length > 20 &&
+      !diagramEl.querySelector('mxGraphModel');
+    if (isCompressed) {
+      showToast('Compressed diagram detected. In draw.io: File → Export As → XML → uncheck "Compressed".');
+      return;
+    }
+
+    // Extract all mxCell elements with meaningful labels
+    const allCells = Array.from(doc.querySelectorAll('mxCell'));
+    const shapes   = [];
+    const edges    = [];
+
+    for (const cell of allCells) {
+      const id     = cell.getAttribute('id');
+      if (id === '0' || id === '1') continue;
+      const value  = (cell.getAttribute('value') || '').trim();
+      const isEdge = cell.getAttribute('edge') === '1';
+      const parent = cell.getAttribute('parent') || '';
+      const source = cell.getAttribute('source') || '';
+      const target = cell.getAttribute('target') || '';
+      const edgeLabel = (cell.getAttribute('value') || '').trim();
+
+      if (isEdge) {
+        const srcLabel = allCells.find(c => c.getAttribute('id') === source)?.getAttribute('value') || source;
+        const tgtLabel = allCells.find(c => c.getAttribute('id') === target)?.getAttribute('value') || target;
+        if (srcLabel && tgtLabel) {
+          edges.push(`${srcLabel} → ${tgtLabel}` + (edgeLabel ? ` (${edgeLabel})` : ''));
+        }
+      } else if (value) {
+        const parentCell  = allCells.find(c => c.getAttribute('id') === parent);
+        const parentLabel = parentCell && parent !== '1' ? (parentCell.getAttribute('value') || '').trim() : null;
+        const isContainer = allCells.some(c => c.getAttribute('parent') === id && c.getAttribute('vertex') === '1');
+        shapes.push({ id, label: value, parentLabel: parentLabel || null, isContainer });
+      }
+    }
+
+    if (shapes.length === 0) {
+      showToast('No labeled shapes found in the diagram. Add text labels to your shapes.');
+      return;
+    }
+
+    // Build readable hierarchy for Claude
+    const lines = [
+      '[DRAW.IO DIAGRAM ATTACHED]',
+      `File: ${file.name}  |  Shapes: ${shapes.length}`,
+      '',
+      'Shapes (indented = nested inside parent container):',
+    ];
+
+    function renderTree(parentLabel, depth) {
+      const indent = '  '.repeat(depth);
+      shapes
+        .filter(s => s.parentLabel === parentLabel)
+        .forEach(s => {
+          lines.push(`${indent}- "${s.label}"${s.isContainer ? ' [container]' : ''}`);
+          renderTree(s.label, depth + 1);
+        });
+    }
+    // Root shapes (no parent label or parent is the diagram root)
+    shapes.filter(s => !s.parentLabel).forEach(s => {
+      lines.push(`- "${s.label}"${s.isContainer ? ' [container]' : ''}`);
+      renderTree(s.label, 1);
+    });
+
+    if (edges.length) {
+      lines.push('', 'Connections:');
+      edges.forEach(e => lines.push(`- ${e}`));
+    }
+
+    lines.push(
+      '',
+      'Please analyze this diagram, identify the OCI resources it represents ' +
+      '(VCNs, subnets, compute instances, gateways, databases, etc.), ' +
+      'then create the corresponding infrastructure using OCI Resource Manager. ' +
+      'Generate Terraform HCL and use resource_manager__create_stack_from_hcl to deploy.'
+    );
+
+    // Pre-fill the chat input and focus
+    const inp = document.getElementById('input');
+    inp.value = lines.join('\n');
+    autoResize(inp);
+    inp.focus();
+  };
+  reader.readAsText(file);
+}
+
+// ── Auto-resize textarea ──────────────────────────────────────────────────────
+function autoResize(el) {
+  el.style.height = 'auto';
+  el.style.height = Math.min(el.scrollHeight, 180) + 'px';
+}
+
+// ── Keyboard handler ──────────────────────────────────────────────────────────
+function onKey(e) {
+  if (e.key === 'Enter' && !e.shiftKey) {
+    e.preventDefault();
+    sendFromInput();
+  }
+}
+
+// ── Send message ──────────────────────────────────────────────────────────────
+function sendFromInput() {
+  if (streaming || pendingTool) return;
+  const inp = document.getElementById('input');
+  const text = inp.value.trim();
+  if (!text) return;
+  inp.value = '';
+  inp.style.height = 'auto';
+  send(text);
+}
+
+async function send(text) {
+  if (streaming || pendingTool) return;
+  streaming = true;
+  setInputLocked(true);
+  showStopBtn(true);
+
+  // Hide welcome screen
+  const welcome = document.getElementById('welcome');
+  if (welcome) welcome.remove();
+
+  // Append user message
+  appendMessage('user', text);
+
+  // Append placeholder assistant message
+  const assistantEl = appendMessage('assistant', '');
+  const textEl = assistantEl.querySelector('.text');
+  const labelEl = assistantEl.querySelector('.label');
+  labelEl.innerHTML = 'OCI Assistant <span class="thinking"><span class="spinner"></span></span>';
+
+  abortController = new AbortController();
+  let wasAborted = false;
+
+  try {
+    const resp = await fetch('/chat', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ message: text, history }),
+      signal: abortController.signal,
+    });
+
+    if (!resp.ok) throw new Error(`Server error: ${resp.status}`);
+
+    await consumeStream(resp, textEl, labelEl, assistantEl);
+  } catch (err) {
+    if (err.name === 'AbortError') {
+      wasAborted = true;
+      textEl.textContent += (textEl.textContent ? '\n\n' : '') + '⏹ Processing stopped.';
+    } else {
+      showError(err.message || 'Connection failed');
+      textEl.textContent = '⚠️ ' + (err.message || 'Request failed');
+    }
+  } finally {
+    labelEl.innerHTML = 'OCI Assistant';
+    streaming = false;
+    abortController = null;
+    showStopBtn(false);
+    if (!pendingTool) {
+      setInputLocked(false);
+      document.getElementById('input').focus();
+    }
+    if (wasAborted && sessionWriteOps.length > 0) showAbortSummary(assistantEl);
+    scrollToBottom();
+  }
+}
+
+// ── Confirm / Cancel pending write operation ──────────────────────────────────
+
+async function confirmTool(cardId) {
+  if (!pendingTool || streaming) return;
+  _resolveConfirmation(cardId, '__CONFIRM__', 'Executing…');
+}
+
+async function cancelTool(cardId) {
+  if (!pendingTool || streaming) return;
+  _resolveConfirmation(cardId, '__CANCEL__', 'Cancelled');
+}
+
+async function _resolveConfirmation(cardId, action, statusMsg) {
+  // Update the confirmation card UI immediately.
+  const card = document.getElementById('confirm-card-' + cardId);
+  if (card) {
+    card.querySelectorAll('button').forEach(b => b.disabled = true);
+    const actionsEl = card.querySelector('.confirm-actions');
+    const statusSpan = document.createElement('span');
+    statusSpan.className = 'confirm-status-msg';
+    statusSpan.textContent = statusMsg;
+    actionsEl.appendChild(statusSpan);
+  }
+
+  streaming = true;
+  showStopBtn(true);
+  // Input remains locked — pendingTool is still set until the response arrives.
+
+  const savedPendingTool = pendingTool;
+  const savedHistory    = pendingHistory;
+  pendingTool   = null;
+  pendingHistory = [];
+
+  // Open a new assistant message for Claude's response.
+  const assistantEl = appendMessage('assistant', '');
+  const textEl  = assistantEl.querySelector('.text');
+  const labelEl = assistantEl.querySelector('.label');
+  labelEl.innerHTML = 'OCI Assistant <span class="thinking"><span class="spinner"></span></span>';
+
+  abortController = new AbortController();
+  let wasAborted = false;
+
+  try {
+    const resp = await fetch('/chat', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        message: action,
+        history: savedHistory,
+        pendingTool: savedPendingTool,
+      }),
+      signal: abortController.signal,
+    });
+
+    if (!resp.ok) throw new Error(`Server error: ${resp.status}`);
+
+    await consumeStream(resp, textEl, labelEl, assistantEl);
+  } catch (err) {
+    if (err.name === 'AbortError') {
+      wasAborted = true;
+      textEl.textContent += (textEl.textContent ? '\n\n' : '') + '⏹ Processing stopped.';
+    } else {
+      showError(err.message || 'Connection failed');
+      textEl.textContent = '⚠️ ' + (err.message || 'Request failed');
+    }
+  } finally {
+    labelEl.innerHTML = 'OCI Assistant';
+    streaming = false;
+    abortController = null;
+    showStopBtn(false);
+    if (!pendingTool) {
+      setInputLocked(false);
+      document.getElementById('input').focus();
+    }
+    if (wasAborted && sessionWriteOps.length > 0) showAbortSummary(assistantEl);
+    scrollToBottom();
+  }
+}
+
+// ── SSE stream consumer (shared by send() and _resolveConfirmation()) ─────────
+async function consumeStream(resp, textEl, labelEl, assistantEl) {
+  const reader  = resp.body.getReader();
+  const decoder = new TextDecoder();
+  let buf = '';
+
+  while (true) {
+    const { value, done } = await reader.read();
+    if (done) break;
+
+    buf += decoder.decode(value, { stream: true });
+
+    // Parse SSE events (separated by double newline)
+    const events = buf.split('\n\n');
+    buf = events.pop() || '';
+
+    for (const raw of events) {
+      const lines = raw.split('\n');
+      let eventType = '', data = '';
+      for (const line of lines) {
+        if (line.startsWith('event: ')) eventType = line.slice(7).trim();
+        if (line.startsWith('data: '))  data = line.slice(6).trim();
+      }
+      if (!eventType || !data) continue;
+
+      try {
+        const payload = JSON.parse(data);
+        handleEvent(eventType, payload, textEl, labelEl, assistantEl);
+        if (eventType === 'done') {
+          history = payload.history || [];
+        }
+      } catch (e) { console.error('SSE parse error', e); }
+    }
+  }
+}
+
+// ── Handle SSE events ─────────────────────────────────────────────────────────
+function handleEvent(type, payload, textEl, labelEl, assistantEl) {
+  switch (type) {
+    case 'text': {
+      textEl.textContent += payload.delta;
+      maybeScrollToBottom();
+      break;
+    }
+    case 'tool_call': {
+      const card = createToolCard(payload.id, payload.name, payload.input);
+      assistantEl.querySelector('.text').after(card);
+      toolCallInputs[payload.id] = payload.input;
+      maybeScrollToBottom();
+      break;
+    }
+    case 'tool_result': {
+      const card = document.getElementById('tool-' + payload.id);
+      if (card) {
+        card.classList.remove('pending');
+        card.classList.add('done');
+        card.querySelector('.status').textContent = '✓ done';
+        const body = card.querySelector('.tool-body');
+        body.textContent = typeof payload.result === 'object'
+          ? JSON.stringify(payload.result, null, 2)
+          : String(payload.result);
+      }
+      // Track write operations for potential revert after a stop.
+      if (payload.name && isWriteToolName(payload.name)) {
+        sessionWriteOps.push({
+          toolName: payload.name,
+          input:    toolCallInputs[payload.id] || null,
+          result:   payload.result || null,
+          time:     new Date().toLocaleTimeString(),
+        });
+      }
+      maybeScrollToBottom();
+      break;
+    }
+    case 'tool_error': {
+      const card = document.getElementById('tool-' + payload.id);
+      if (card) {
+        card.classList.remove('pending');
+        card.classList.add('error');
+        card.querySelector('.status').textContent = '✗ error';
+        const body = card.querySelector('.tool-body');
+        body.textContent = payload.error;
+        card.classList.add('expanded');
+      }
+      break;
+    }
+    case 'confirmation_required': {
+      // Insert a confirmation card so the user can approve or reject the
+      // write operation before it is executed.
+      const confirmCard = createConfirmCard(payload.id, payload.name, payload.input);
+      assistantEl.querySelector('.text').after(confirmCard);
+      scrollToBottom();
+      break;
+    }
+    case 'done': {
+      labelEl.innerHTML = 'OCI Assistant';
+      if (payload.pendingTool) {
+        // The agentic loop paused for user confirmation.
+        // Store state so _resolveConfirmation() can resume it.
+        pendingTool   = payload.pendingTool;
+        pendingHistory = payload.history || [];
+      }
+      break;
+    }
+    case 'error': {
+      textEl.textContent = '⚠️ ' + payload.message;
+      showError(payload.message);
+      break;
+    }
+  }
+}
+
+// ── Create tool call card ─────────────────────────────────────────────────────
+function createToolCard(id, name, input) {
+  const friendly = toolLabel(name);
+  const card = document.createElement('div');
+  card.className = 'tool-call pending';
+  card.id = 'tool-' + id;
+
+  card.innerHTML = `
+    <div class="tool-header">
+      <span class="icon">⚙️</span>
+      <span class="name">${esc(friendly)}</span>
+      <span class="status"><span class="spinner"></span> calling…</span>
+    </div>
+    <button class="tool-toggle" onclick="toggleToolBody(this)">▸ Show params</button>
+    <div class="tool-body">${esc(JSON.stringify(input, null, 2))}</div>
+  `;
+  return card;
+}
+
+// ── Create confirmation card ──────────────────────────────────────────────────
+function createConfirmCard(id, name, input) {
+  const friendly = toolLabel(name);
+  const card = document.createElement('div');
+  card.className = 'confirm-card';
+  card.id = 'confirm-card-' + id;
+
+  card.innerHTML = `
+    <div class="confirm-header-bar">
+      <span class="confirm-icon">⚠️</span>
+      <span class="confirm-title">Confirmation Required</span>
+      <span class="confirm-tool-name">${esc(friendly)}</span>
+    </div>
+    <div class="confirm-params-wrap">
+      <div class="confirm-params-label">Parameters</div>
+      <div class="confirm-params">${esc(JSON.stringify(input, null, 2))}</div>
+    </div>
+    <div class="confirm-actions">
+      <button class="btn-confirm"    onclick="confirmTool('${esc(id)}')">✓ Confirm</button>
+      <button class="btn-cancel-op"  onclick="cancelTool('${esc(id)}')">✗ Cancel</button>
+    </div>
+  `;
+  return card;
+}
+
+function toggleToolBody(btn) {
+  const card = btn.closest('.tool-call');
+  card.classList.toggle('expanded');
+  btn.textContent = card.classList.contains('expanded') ? '▾ Hide params' : '▸ Show params';
+}
+
+function toolLabel(name) {
+  return name
+    .replace('__', ' › ')
+    .replace(/_/g, ' ')
+    .replace(/\b\w/g, c => c.toUpperCase());
+}
+
+// ── Append a message bubble ───────────────────────────────────────────────────
+function appendMessage(role, text) {
+  const container = document.getElementById('messages');
+  const div = document.createElement('div');
+  div.className = `msg msg-${role}`;
+
+  if (role === 'user') {
+    div.innerHTML = `<div class="label">You</div><div class="bubble">${esc(text)}</div>`;
+  } else {
+    div.innerHTML = `<div class="label">OCI Assistant</div><div class="text">${esc(text)}</div>`;
+  }
+
+  container.appendChild(div);
+  scrollToBottom();
+  return div;
+}
+
+// ── Stop button ───────────────────────────────────────────────────────────────
+function stopStreaming() {
+  if (abortController) {
+    abortController.abort();
+    // abortController is cleared in the finally block of send()/_resolveConfirmation()
+  }
+}
+
+function showStopBtn(visible) {
+  document.getElementById('stop-btn').classList.toggle('visible', visible);
+}
+
+// ── Smart scroll ──────────────────────────────────────────────────────────────
+// Auto-scroll only when the user is already near the bottom. This lets them
+// scroll up to read earlier content while a response is still streaming.
+function isNearBottom() {
+  const m = document.getElementById('messages');
+  return m.scrollHeight - m.scrollTop - m.clientHeight < 120;
+}
+
+function maybeScrollToBottom() {
+  if (isNearBottom()) scrollToBottom();
+}
+
+// ── Write-tool name detection (mirrors server-side isWriteTool) ────────────────
+function isWriteToolName(name) {
+  const lower = name.toLowerCase();
+  return ['create','delete','terminate','enable','disable','update','modify','attach','detach','cancel']
+    .some(v => lower.includes(v));
+}
+
+// ── Abort summary panel ───────────────────────────────────────────────────────
+// Shown below the last assistant message when the user stops a multi-step op
+// that already executed some write tools.
+function showAbortSummary(assistantEl) {
+  const ops = [...sessionWriteOps];
+  if (ops.length === 0) return;
+
+  const panel = document.createElement('div');
+  panel.className = 'session-audit';
+
+  const items = ops.map(op =>
+    `<div class="session-audit-item">${esc(toolLabel(op.toolName))} <span style="font-size:10px;color:#555">${esc(op.time)}</span></div>`
+  ).join('');
+
+  panel.innerHTML = `
+    <div class="session-audit-header">📋 ${ops.length} write operation(s) completed before stop</div>
+    <div class="session-audit-body">${items}</div>
+    <div class="session-audit-actions">
+      <button class="btn-revert">↩ Pre-fill revert request</button>
+    </div>
+  `;
+
+  // ── Detect Resource Manager stacks for a smarter revert message ──────────
+  // Extract stack IDs from create_stack / create_stack_from_hcl results.
+  const stackIds = ops
+    .filter(op =>
+      op.toolName === 'resource_manager__create_stack' ||
+      op.toolName === 'resource_manager__create_stack_from_hcl'
+    )
+    .map(op => op.result && op.result.id)
+    .filter(Boolean);
+
+  // Also capture stack IDs surfaced by completed APPLY jobs (stackId field added to createJob return).
+  const applyStackIds = ops
+    .filter(op =>
+      op.toolName === 'resource_manager__create_job' &&
+      op.result && op.result.operation === 'APPLY'
+    )
+    .map(op => op.result && op.result.stackId)
+    .filter(Boolean);
+
+  const allStackIds = [...new Set([...stackIds, ...applyStackIds])];
+
+  let revertMsg;
+  if (allStackIds.length > 0) {
+    const list = allStackIds.map(id => '`' + id + '`').join(', ');
+    revertMsg =
+      'I stopped the previous operation mid-way. The following Resource Manager stacks were ' +
+      'created or modified: ' + list + '. ' +
+      'Please revert by running a DESTROY job on each stack, waiting for SUCCEEDED, then ' +
+      'deleting the stack. Also check whether any additional direct-API resources were ' +
+      'created outside of these stacks.';
+  } else {
+    revertMsg =
+      'I stopped the previous operation mid-way. The following write actions were already ' +
+      'executed: ' + ops.map(op => toolLabel(op.toolName)).join(', ') + '. ' +
+      'Please list the exact resources that were created, then ask me whether to ' +
+      'delete/terminate each one individually before taking any action.';
+  }
+
+  panel.querySelector('.btn-revert').addEventListener('click', () => {
+    const inp = document.getElementById('input');
+    inp.value = revertMsg;
+    autoResize(inp);
+    inp.focus();
+  });
+
+  assistantEl.appendChild(panel);
+  scrollToBottom();
+}
+
+// ── Input lock helpers ────────────────────────────────────────────────────────
+function setInputLocked(locked) {
+  const inp = document.getElementById('input');
+  const btn = document.getElementById('send-btn');
+  inp.disabled = locked;
+  btn.disabled = locked;
+  inp.placeholder = locked && pendingTool
+    ? 'Confirm or cancel the operation above…'
+    : 'Ask about your OCI resources…';
+}
+
+// ── Utilities ─────────────────────────────────────────────────────────────────
+function scrollToBottom() {
+  const m = document.getElementById('messages');
+  m.scrollTop = m.scrollHeight;
+}
+
+function esc(str) {
+  return String(str)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;');
+}
+
+function showError(msg) {
+  const existing = document.querySelector('.toast');
+  if (existing) existing.remove();
+  const toast = document.createElement('div');
+  toast.className = 'toast';
+  toast.textContent = msg;
+  document.body.appendChild(toast);
+  setTimeout(() => toast.remove(), 5000);
+}
+
+function clearChat() {
+  // Abort any in-flight request and reset all state.
+  if (abortController) { abortController.abort(); abortController = null; }
+  pendingTool    = null;
+  pendingHistory = [];
+  streaming      = false;
+  sessionWriteOps = [];
+  toolCallInputs  = {};
+  showStopBtn(false);
+  setInputLocked(false);
+  history = [];
+
+  const msgs = document.getElementById('messages');
+  msgs.innerHTML = `
+    <div class="welcome" id="welcome">
+      <div class="icon">☁️</div>
+      <h2>Manage Oracle Cloud with natural language</h2>
+      <p>Ask me to list, inspect, or create resources in your OCI tenancy.<br>
+         I follow OCI best practices and always confirm before creating anything.</p>
+      <div class="suggestions">
+        <div class="suggestion" onclick="send(this.textContent)">List all my compute instances</div>
+        <div class="suggestion" onclick="send(this.textContent)">Show me my VCNs and their CIDRs</div>
+        <div class="suggestion" onclick="send(this.textContent)">Create a dev VCN with best-practice settings</div>
+        <div class="suggestion" onclick="send(this.textContent)">List all object storage buckets</div>
+        <div class="suggestion" onclick="send(this.textContent)">What autonomous databases do I have?</div>
+        <div class="suggestion" onclick="send(this.textContent)">Help me plan a new VCN and subnet layout</div>
+      </div>
+    </div>`;
+}
+</script>
+</body>
+</html>

@@ -27,3 +27,15 @@ coverage/
 
 # Oracle Cloud credentials
 oci-credentials.json
+
+# Claude Code tooling
+.claude/
+
+# Binary executables
+*.exe
+
+# Runtime data (OCI docs version cache, etc.)
+data/
+
+# Electron installer output
+installer/

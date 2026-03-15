@@ -1,10 +1,8 @@
-# Integración con Claude Desktop
+# Claude Desktop Integration
 
-Esta guía proporciona instrucciones detalladas sobre cómo integrar el servidor MCP de Oracle Cloud Infrastructure con Claude Desktop.
+This guide explains how to integrate the OCI MCP Server with Claude Desktop.
 
-## Arquitectura de la integración
-
-La integración se basa en la siguiente arquitectura:
+## Architecture
 
 ```
 +----------------+      +------------------+      +------------------+
@@ -13,210 +11,199 @@ La integración se basa en la siguiente arquitectura:
 |                |      |                  |      |                  |
 +----------------+      +------------------+      +------------------+
         |                       |                         |
-        |                       |                         |
         v                       v                         v
-  Interfaz de Usuario     Puerto 3001               Puerto 3000
+  User Interface           Port 3001                 Port 3000
 ```
 
-El sistema consta de tres componentes principales:
+The system has three main components:
 
-1. **Claude Desktop**: Aplicación de escritorio para interactuar con el modelo Claude de Anthropic
-2. **Puente Claude-MCP**: Servidor que traduce las solicitudes entre Claude Desktop y el protocolo MCP
-3. **Servidor MCP-OCI**: Servidor que implementa el protocolo MCP y se comunica con Oracle Cloud Infrastructure
+1. **Claude Desktop**: The Anthropic desktop app for conversing with Claude
+2. **Claude-MCP Bridge**: Translates requests between Claude Desktop and the MCP protocol
+3. **MCP-OCI Server**: Implements the MCP protocol and communicates with Oracle Cloud Infrastructure
 
-## Requisitos previos
+## Prerequisites
 
-- Claude Desktop instalado
-- Servidor MCP-OCI y puente Claude configurados y ejecutándose
-- Credenciales de Oracle Cloud Infrastructure configuradas
+- Claude Desktop installed
+- MCP-OCI server and Claude bridge configured and running
+- Oracle Cloud Infrastructure credentials configured
 
-## Configuración del servidor
+## Server setup
 
-### Opción 1: Ejecución con Docker
+### Option 1: Docker
 
-La forma más sencilla de ejecutar todo el sistema es usando Docker Compose:
+The easiest way to run the full system is with Docker Compose:
 
-1. Asegúrate de que el archivo `.env` esté configurado correctamente
-2. Ejecuta Docker Compose:
+1. Make sure your `.env` file is correctly configured
+2. Run Docker Compose:
 
 ```bash
 docker-compose up -d
 ```
 
-Esto iniciará tanto el servidor MCP-OCI (puerto 3000) como el puente Claude (puerto 3001).
+This starts both the MCP-OCI server (port 3000) and the Claude bridge (port 3001).
 
-### Opción 2: Ejecución local
+### Option 2: Local
 
-Para ejecutar los servidores localmente:
+To run the servers locally:
 
-1. Instala las dependencias:
+1. Install dependencies:
 
 ```bash
 npm install
 ```
 
-2. Compila el proyecto:
+2. Build the project:
 
 ```bash
 npm run build
 ```
 
-3. Inicia los servidores:
+3. Start the servers:
 
 ```bash
 npm start
 ```
 
-## Verificación de la configuración
+## Verifying the setup
 
-Puedes verificar que los servidores estén funcionando correctamente con el siguiente comando:
+Check that both servers are running correctly:
 
 ```bash
 npm run test:claude
 ```
 
-Este comando realizará las siguientes comprobaciones:
-- Conectividad básica con el puente Claude
-- Obtención de las herramientas disponibles
-- Ejecución de una función de prueba (listar VCNs)
+This performs the following checks:
+- Basic connectivity with the Claude bridge
+- Fetching available tools
+- Executing a test function (list VCNs)
 
-## Configuración en Claude Desktop
+## Configuring Claude Desktop
 
-Una vez que los servidores estén en funcionamiento, debes configurar Claude Desktop para utilizar las herramientas de OCI:
+Once the servers are running, configure Claude Desktop to use the OCI tools:
 
-1. **Abrir Claude Desktop**
+1. **Open Claude Desktop**
 
-2. **Acceder a la configuración de herramientas**
-   - Haz clic en el icono de engranaje (⚙️) en la parte superior derecha
-   - Selecciona "Herramientas personalizadas" o "Custom Tools"
+2. **Open tool settings**
+   - Click the gear icon (⚙️) in the top right
+   - Select "Custom Tools"
 
-3. **Añadir un nuevo servidor de herramientas**
-   - Haz clic en "Añadir servidor" o "Add server"
-   - Completa la información:
-     - **Nombre**: Oracle Cloud Infrastructure
-     - **Descripción**: Herramientas para gestionar recursos en Oracle Cloud Infrastructure
-     - **URL del servidor**: http://localhost:3001
-     - **Endpoint de herramientas**: /tools
-     - **Endpoint de función**: /function
+3. **Add a new tool server**
+   - Click "Add server"
+   - Fill in the details:
+     - **Name**: Oracle Cloud Infrastructure
+     - **Description**: Tools for managing Oracle Cloud Infrastructure resources
+     - **Server URL**: http://localhost:3001
+     - **Tools endpoint**: /tools
+     - **Function endpoint**: /function
 
-4. **Guardar la configuración**
-   - Haz clic en "Guardar" o "Save"
-   - Asegúrate de que el interruptor de activación esté en posición "activado"
+4. **Save the configuration**
+   - Click "Save"
+   - Make sure the toggle is set to enabled
 
-## Uso con Claude Desktop
+## Usage
 
-Una vez configurado, puedes interactuar con Claude para gestionar tu infraestructura de Oracle Cloud. Aquí tienes algunos ejemplos de lo que puedes hacer:
+Once configured, you can ask Claude to manage your Oracle Cloud infrastructure. Some examples:
 
-### Consultar recursos existentes
+### Query existing resources
 
-- **Instancias de computación**: "¿Puedes listar todas mis instancias de computación en Oracle Cloud?"
-- **Redes virtuales**: "Muéstrame todas mis VCNs"
-- **Almacenamiento**: "¿Cuántos buckets de almacenamiento tengo y cuáles son?"
+- **Compute instances**: "Can you list all my compute instances in Oracle Cloud?"
+- **Virtual networks**: "Show me all my VCNs"
+- **Storage**: "How many object storage buckets do I have?"
 
-### Crear nuevos recursos
+### Create new resources
 
-- **Red virtual**: "Crea una nueva VCN llamada 'produccion-net' con CIDR 10.0.0.0/16"
-- **Instancia**: "Necesito crear una instancia de computación con la forma VM.Standard.E4.Flex"
-- **Almacenamiento**: "Crea un nuevo bucket llamado 'datos-aplicacion'"
+- **Virtual network**: "Create a new VCN called 'production-net' with CIDR 10.0.0.0/16"
+- **Instance**: "I need to create a compute instance with shape VM.Standard.E4.Flex"
+- **Storage**: "Create a new bucket called 'app-data'"
 
-### Análisis y recomendaciones
+### Analysis and recommendations
 
-- **Arquitectura**: "¿Cómo debería estructurar mis VCNs y subredes para una aplicación de tres niveles?"
-- **Optimización**: "¿Puedes revisar mis instancias actuales y recomendar mejoras?"
-- **Seguridad**: "¿Cómo puedo configurar mis subredes para mayor seguridad?"
+- **Architecture**: "How should I structure my VCNs and subnets for a three-tier application?"
+- **Optimization**: "Can you review my current instances and suggest improvements?"
+- **Security**: "How can I configure my subnets for better security?"
 
-## Ejemplo completo de interacción
+## Example interaction
 
-A continuación se muestra un ejemplo de cómo interactuar con Claude Desktop utilizando las herramientas de OCI:
-
-**Usuario**:
+**User**:
 ```
-Necesito configurar una nueva VCN para mi entorno de desarrollo. Debería tener un CIDR de 172.16.0.0/16 y llamarse "dev-network".
+I need to set up a new VCN for my dev environment. It should have CIDR 172.16.0.0/16 and be named "dev-network".
 ```
 
 **Claude**:
 ```
-Voy a ayudarte a configurar una nueva VCN para tu entorno de desarrollo. Puedo crear esta red virtual en Oracle Cloud con los parámetros que has especificado.
+I'll create that VCN for you now.
 
-Voy a crear una VCN con las siguientes características:
-- Nombre: dev-network
-- CIDR Block: 172.16.0.0/16
+[Claude uses the "network" tool with function "create_vcn"]
 
-Permíteme hacerlo por ti.
-
-[Claude utiliza la herramienta "network" y la función "create_vcn"]
-
-¡Excelente! He creado con éxito una nueva VCN con las siguientes características:
+Done! The new VCN has been created:
 
 - ID: ocid1.vcn.oc1.iad.amaaaaaauhde7kyaqocm4taljrxjsxjmk5vcznevf7uqye4z3cyddcmsp5qq
-- Nombre: dev-network
+- Name: dev-network
 - CIDR: 172.16.0.0/16
-- Estado: PROVISIONING (cambiará a AVAILABLE en unos minutos)
-- Etiqueta DNS: (no se configuró una etiqueta DNS personalizada)
+- State: PROVISIONING (will become AVAILABLE in a few minutes)
+- DNS label: (none configured)
 
-La VCN tardará unos minutos en estar completamente aprovisionada. Una vez disponible, podrás crear subredes dentro de esta VCN. ¿Te gustaría que te ayude a crear algunas subredes para este entorno de desarrollo?
+The VCN will finish provisioning shortly. Would you like me to create subnets inside it?
 ```
 
-## Solución de problemas
+## Troubleshooting
 
-Si encuentras problemas con la integración, aquí hay algunos pasos para solucionarlos:
-
-### 1. Verificar que los servidores estén en ejecución
+### 1. Check that the servers are running
 
 ```bash
-# Para Docker
+# Docker
 docker ps
 
-# Para ejecución local
+# Local
 ps aux | grep node
 ```
 
-### 2. Comprobar los registros de los servidores
+### 2. Check server logs
 
 ```bash
-# Para Docker
+# Docker
 docker-compose logs -f
 
-# Para ejecución local
+# Local
 tail -f logs/combined.log
 ```
 
-### 3. Probar la conectividad
+### 3. Test connectivity
 
 ```bash
-# Probar el servidor MCP-OCI
+# Test the MCP-OCI server
 curl http://localhost:3000
 
-# Probar el puente Claude
+# Test the Claude bridge
 curl http://localhost:3001
 ```
 
-### 4. Verificar la configuración en Claude Desktop
+### 4. Verify Claude Desktop configuration
 
-- Asegúrate de que la URL del servidor sea correcta
-- Verifica que los endpoints de herramientas y función estén correctamente configurados
-- Comprueba que las herramientas estén habilitadas
+- Make sure the server URL is correct
+- Check that the tools and function endpoints are correctly set
+- Confirm that the tools toggle is enabled
 
-### 5. Problemas comunes
+### 5. Common errors
 
-- **Error "No se puede conectar al servidor"**: Asegúrate de que los servidores estén en ejecución y accesibles.
-- **Error "No se encontraron herramientas"**: El endpoint `/tools` no está devolviendo el formato esperado.
-- **Error al ejecutar funciones**: Verifica los registros del servidor para obtener más detalles.
-- **Acceso denegado a OCI**: Las credenciales de OCI pueden no ser válidas o carecer de permisos suficientes.
+- **"Cannot connect to server"**: Ensure both servers are running and reachable.
+- **"No tools found"**: The `/tools` endpoint is not returning the expected format.
+- **"Error executing function"**: Check the server logs for details.
+- **"OCI access denied"**: OCI credentials may be invalid or missing required permissions.
 
-## Seguridad y consideraciones para producción
+## Production considerations
 
-Para entornos de producción, considera implementar estas medidas adicionales:
+For production deployments:
 
-1. **HTTPS**: Configura certificados SSL/TLS para ambos servidores
-2. **Autenticación**: Implementa un mecanismo de autenticación para el puente Claude
-3. **Control de acceso**: Limita los permisos de las credenciales de OCI al mínimo necesario
-4. **Redes privadas**: Configura los servidores en una red privada y usa un proxy inverso
-5. **Auditoría**: Habilita el registro completo de todas las acciones realizadas
+1. **HTTPS**: Configure SSL/TLS certificates for both servers
+2. **Authentication**: Add an authentication mechanism to the Claude bridge
+3. **Least privilege**: Scope OCI credentials to only the permissions this server needs
+4. **Private networking**: Run the servers in a private network behind a reverse proxy
+5. **Audit logging**: Enable full logging of all actions performed
 
-## Próximos pasos
+## Next steps
 
-- **Personalizar herramientas**: Añade nuevas herramientas o funciones según tus necesidades específicas
-- **Integración con más servicios**: Amplía la funcionalidad para cubrir más servicios de OCI
-- **Flujos de trabajo automatizados**: Crea secuencias predefinidas para tareas comunes
-- **Interfaz de administración**: Desarrolla una interfaz web para gestionar la configuración
+- **Custom tools**: Add new tools or functions for your specific use case
+- **More OCI services**: Extend coverage to additional OCI services
+- **Automated workflows**: Build predefined sequences for common tasks
+- **Admin interface**: Develop a web UI for managing the configuration
